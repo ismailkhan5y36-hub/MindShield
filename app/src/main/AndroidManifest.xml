@@ -34,6 +34,17 @@
             android:launchMode="singleTask"
             android:theme="@style/Theme.MindShield.Fullscreen" />
 
+        <!-- Mind Reset Activity -->
+        <activity
+            android:name=".MindResetActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MindShield.Fullscreen" />
+
+        <!-- Periodic Hourly Reminder Receiver -->
+        <receiver
+            android:name=".ReminderReceiver"
+            android:exported="false" />
+
         <!-- Core Accessibility Service for Real-time Reel & Content Protection -->
         <service
             android:name=".ShieldAccessibilityService"

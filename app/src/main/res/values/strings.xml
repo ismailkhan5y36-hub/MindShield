@@ -1,12 +1,41 @@
 <resources>
     <string name="app_name">MindShield</string>
-    <string name="accessibility_service_description">MindShield reels monitor aur productivity protection ke liye screen aur app usage detect karta hai taake reels daily 1 hour limit par auto-close ho sakein.</string>
-    <string name="service_active">Shield Active &amp; Protecting</string>
+    <string name="accessibility_service_description">MindShield reels screen-time aur distraction-free focus ke liye usage monitor karta hai taake daily limits par auto-close ho sakein.</string>
+    <string name="service_active">Focus Shield Active</string>
     <string name="service_inactive">Shield Inactive - Enable Service</string>
-    <string name="daily_limit_title">Reels Daily Quota</string>
+    <string name="daily_limit_title">Daily Reels Quota</string>
     <string name="daily_limit_subtitle">1 Ghanta (60 Minutes) Limit</string>
     <string name="enable_accessibility">1. Turn On Accessibility Service</string>
     <string name="enable_overlay">2. Allow Display Over Apps</string>
     <string name="enable_battery">3. Exclude from Battery Saver (Tecno/HiOS)</string>
     <string name="quota_exhausted">Aaj ka 1 ghanta reels quota poora ho chuka hai! Kal tak ke liye blocked.</string>
+
+    <!-- Clean Block Screen Strings -->
+    <string name="block_quota_title">TIME\'S UP!</string>
+    <string name="block_quota_subtitle">Aaj Ka 1 Ghanta Reels Quota Mukammal</string>
+    <string name="block_quota_desc">Waqt qeemti hai. Aaj ki limit poori ho chuki hai. Agla quota kal raat 12:00 AM par reset hoga.</string>
+    <string name="block_distraction_title">FOCUS SHIELD ACTIVE</string>
+    <string name="block_distraction_subtitle">Distraction Blocked</string>
+    <string name="block_distraction_desc">Yeh page aapke focus aur maqsad ke liye munasib nahi hai. Wapis apne zaroori kaam par dhyan dein.</string>
+    <string name="go_home_button">Wapis Kaam Par Lago (Go Home)</string>
+
+    <!-- Productivity & Goals -->
+    <string name="goals_title">Today\'s Goals</string>
+    <string name="goals_subtitle">Daily Achievement Checklist</string>
+    <string name="add_goal_hint">Enter new target (e.g. 30m Parhai)...</string>
+    <string name="add_goal_btn">Add Goal</string>
+
+    <!-- Focus Pomodoro -->
+    <string name="focus_title">Deep Work Focus</string>
+    <string name="focus_subtitle">25 Min Work • 5 Min Break</string>
+    <string name="focus_start">Start Focus</string>
+    <string name="focus_pause">Pause</string>
+    <string name="focus_reset">Reset</string>
+
+    <!-- Mindset & Mind Reset -->
+    <string name="mindset_title">Mindset &amp; Discipline</string>
+    <string name="clean_streak_title">Clean Focus Streak</string>
+    <string name="mind_reset_btn">SOS Mind Reset (60s Breathing)</string>
+    <string name="reminder_toggle_title">Hourly Mindful Reminders</string>
+    <string name="reminder_toggle_desc">Har ghante paani aur focus ka gentle reminder</string>
 </resources>

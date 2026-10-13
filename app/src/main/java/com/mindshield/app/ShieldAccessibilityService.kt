@@ -14,14 +14,14 @@ class ShieldAccessibilityService : AccessibilityService() {
     private var isCurrentlyInReels = false
 
     // Target packages for short videos
-    private val tiktokPackages = setOf(
+    private val shortVideoPackages = setOf(
         "com.zhiliaoapp.musically",
         "com.ss.android.ugc.trill"
     )
 
     private val browsers = setOf(
         "com.android.chrome",
-        "com.transsion.phoenix", // Tecno & Infinix default browser
+        "com.transsion.phoenix", // Tecno & Infinix browser
         "com.sec.android.app.sbrowser",
         "org.mozilla.firefox",
         "com.opera.browser",
@@ -30,8 +30,8 @@ class ShieldAccessibilityService : AccessibilityService() {
         "com.google.android.googlequicksearchbox"
     )
 
-    // High-risk keywords for instant blocking
-    private val adultKeywords = listOf(
+    // Harmful / high-risk search filters (monitored silently for auto-kickout)
+    private val restrictedKeywords = listOf(
         "porn", "xxx", "xnxx", "xvideos", "pornhub", "xhamster",
         "redwap", "brazzers", "sex video", "nude", "adult video",
         "erotic", "nsfw", "onlyfans leaks"
@@ -62,17 +62,17 @@ class ShieldAccessibilityService : AccessibilityService() {
         if (event == null) return
         val packageName = event.packageName?.toString() ?: return
 
-        // 1. Check for Galat / Adult Content in Browsers (Rule 1: Instant Kickout)
+        // 1. Check for Harmful / Inappropriate Searches in Browsers (Rule 1: Instant Auto-Kickout)
         if (browsers.contains(packageName)) {
             val rootNode = rootInActiveWindow
-            if (rootNode != null && containsAdultKeyword(rootNode)) {
-                quotaManager.recordBadContentBlock()
-                triggerBlock(BlockActivity.REASON_ADULT)
+            if (rootNode != null && containsRestrictedKeyword(rootNode)) {
+                quotaManager.recordDistractionBlock()
+                triggerBlock(BlockActivity.REASON_DISTRACTION)
                 return
             }
         }
 
-        // 2. Check for Reels / Shorts (Rule 2: 60 mins Daily Quota)
+        // 2. Check for Reels / Shorts (Rule 2: 60 mins Daily Limit)
         val inReels = checkIfInReelsOrShorts(packageName, event)
 
         if (inReels) {
@@ -90,8 +90,7 @@ class ShieldAccessibilityService : AccessibilityService() {
     }
 
     private fun checkIfInReelsOrShorts(packageName: String, event: AccessibilityEvent): Boolean {
-        // TikTok is 100% short video
-        if (tiktokPackages.contains(packageName)) {
+        if (shortVideoPackages.contains(packageName)) {
             return true
         }
 
@@ -166,7 +165,7 @@ class ShieldAccessibilityService : AccessibilityService() {
         // Step 1: Force kickout to Android Home Screen immediately
         performGlobalAction(GLOBAL_ACTION_HOME)
 
-        // Step 2: Launch Fullscreen Shield Warning Screen
+        // Step 2: Launch Fullscreen Shield Screen
         val blockIntent = Intent(this, BlockActivity::class.java).apply {
             putExtra(BlockActivity.EXTRA_REASON, reason)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -174,13 +173,13 @@ class ShieldAccessibilityService : AccessibilityService() {
         startActivity(blockIntent)
     }
 
-    private fun containsAdultKeyword(node: AccessibilityNodeInfo?): Boolean {
+    private fun containsRestrictedKeyword(node: AccessibilityNodeInfo?): Boolean {
         if (node == null) return false
 
         val text = node.text?.toString()?.lowercase() ?: ""
         val desc = node.contentDescription?.toString()?.lowercase() ?: ""
 
-        for (keyword in adultKeywords) {
+        for (keyword in restrictedKeywords) {
             if (text.contains(keyword) || desc.contains(keyword)) {
                 return true
             }
@@ -188,7 +187,7 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i)
-            if (child != null && containsAdultKeyword(child)) {
+            if (child != null && containsRestrictedKeyword(child)) {
                 return true
             }
         }

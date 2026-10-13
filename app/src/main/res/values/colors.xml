@@ -3,6 +3,9 @@
     <color name="primary">#0F172A</color>
     <color name="primary_dark">#020617</color>
     <color name="accent">#38BDF8</color>
+    <color name="accent_focus">#F59E0B</color>
+    <color name="accent_goals">#10B981</color>
+    <color name="accent_mindset">#A855F7</color>
     <color name="background">#0B0F19</color>
     <color name="card_bg">#1E293B</color>
     <color name="card_stroke">#334155</color>

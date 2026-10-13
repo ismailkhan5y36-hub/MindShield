@@ -15,7 +15,7 @@ class DailyQuotaManager(context: Context) {
         const val DAILY_LIMIT_SECONDS = 3600 // 1 hour = 60 mins = 3600 secs
         private const val KEY_LAST_DATE = "last_date"
         private const val KEY_USED_SECONDS = "used_seconds"
-        private const val KEY_BLOCKED_ATTEMPTS = "blocked_attempts"
+        private const val KEY_DISTRACTIONS_BLOCKED = "distractions_blocked"
     }
 
     private fun getTodayDateString(): String {
@@ -55,12 +55,12 @@ class DailyQuotaManager(context: Context) {
         return if (remaining > 0) remaining else 0
     }
 
-    fun recordBadContentBlock() {
-        val current = prefs.getInt(KEY_BLOCKED_ATTEMPTS, 0)
-        prefs.edit().putInt(KEY_BLOCKED_ATTEMPTS, current + 1).apply()
+    fun recordDistractionBlock() {
+        val current = prefs.getInt(KEY_DISTRACTIONS_BLOCKED, 0)
+        prefs.edit().putInt(KEY_DISTRACTIONS_BLOCKED, current + 1).apply()
     }
 
-    fun getBadContentBlockCount(): Int {
-        return prefs.getInt(KEY_BLOCKED_ATTEMPTS, 0)
+    fun getDistractionBlockCount(): Int {
+        return prefs.getInt(KEY_DISTRACTIONS_BLOCKED, 0)
     }
 }

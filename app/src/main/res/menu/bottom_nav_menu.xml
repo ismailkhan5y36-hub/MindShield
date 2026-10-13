@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_shield"
+        android:icon="@drawable/ic_nav_shield"
+        android:title="Shield" />
+    <item
+        android:id="@+id/nav_goals"
+        android:icon="@drawable/ic_nav_goals"
+        android:title="Goals" />
+    <item
+        android:id="@+id/nav_focus"
+        android:icon="@drawable/ic_nav_focus"
+        android:title="Focus" />
+    <item
+        android:id="@+id/nav_mindset"
+        android:icon="@drawable/ic_nav_mindset"
+        android:title="Mindset" />
+</menu>
