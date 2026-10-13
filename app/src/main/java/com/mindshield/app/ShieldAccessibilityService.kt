@@ -10,6 +10,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 class ShieldAccessibilityService : AccessibilityService() {
 
     private lateinit var quotaManager: DailyQuotaManager
+    private lateinit var antiCheatManager: AntiCheatManager
     private val handler = Handler(Looper.getMainLooper())
     private var isCurrentlyInReels = false
 
@@ -30,7 +31,15 @@ class ShieldAccessibilityService : AccessibilityService() {
         "com.google.android.googlequicksearchbox"
     )
 
-    // Harmful / high-risk search filters (monitored silently for auto-kickout)
+    // Anti-Cheat packages: Package Installer and Tecno/HiOS Freezer
+    private val antiCheatTargetPackages = setOf(
+        "com.google.android.packageinstaller",
+        "com.android.packageinstaller",
+        "com.transsion.freezer",
+        "com.transsion.appmanager"
+    )
+
+    // Harmful search keywords (monitored silently for auto-kickout)
     private val restrictedKeywords = listOf(
         "porn", "xxx", "xnxx", "xvideos", "pornhub", "xhamster",
         "redwap", "brazzers", "sex video", "nude", "adult video",
@@ -56,13 +65,23 @@ class ShieldAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         quotaManager = DailyQuotaManager(this)
+        antiCheatManager = AntiCheatManager(this)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         val packageName = event.packageName?.toString() ?: return
 
-        // 1. Check for Harmful / Inappropriate Searches in Browsers (Rule 1: Instant Auto-Kickout)
+        // --- RULE 1: ANTI-CHEAT & ANTI-FREEZER (2-HOUR DELAY LOCK) ---
+        if (antiCheatManager.isAntiCheatEnabled() && !antiCheatManager.isMaintenanceWindowOpen()) {
+            if (isAntiCheatViolation(packageName, event)) {
+                antiCheatManager.triggerCoolingOffIfIdle()
+                triggerAntiCheatDelay()
+                return
+            }
+        }
+
+        // --- RULE 2: HARMFUL SEARCHES IN BROWSERS (INSTANT HOME KICKOUT) ---
         if (browsers.contains(packageName)) {
             val rootNode = rootInActiveWindow
             if (rootNode != null && containsRestrictedKeyword(rootNode)) {
@@ -72,21 +91,53 @@ class ShieldAccessibilityService : AccessibilityService() {
             }
         }
 
-        // 2. Check for Reels / Shorts (Rule 2: 60 mins Daily Limit)
+        // --- RULE 3: REELS / SHORTS (60 MINS DAILY QUOTA) ---
         val inReels = checkIfInReelsOrShorts(packageName, event)
 
         if (inReels) {
             if (quotaManager.isQuotaExhausted()) {
-                // Quota over -> Immediate auto close
                 triggerBlock(BlockActivity.REASON_QUOTA)
                 stopTicker()
             } else {
-                // Quota still remaining -> start ticking active seconds
                 startTicker()
             }
         } else {
             stopTicker()
         }
+    }
+
+    private fun isAntiCheatViolation(packageName: String, event: AccessibilityEvent): Boolean {
+        // Direct attempt via Package Installer or Tecno Freezer
+        if (antiCheatTargetPackages.contains(packageName)) {
+            val rootNode = rootInActiveWindow ?: return true
+            if (hasNodeWithText(rootNode, "MindShield") || packageName.contains("freezer")) {
+                return true
+            }
+        }
+
+        // Attempting to clear data, force-stop, or uninstall from Android Settings
+        if (packageName == "com.android.settings") {
+            val rootNode = rootInActiveWindow ?: return false
+            if (hasNodeWithText(rootNode, "MindShield")) {
+                // If on MindShield App Info screen in Settings
+                if (hasNodeWithText(rootNode, "Uninstall") ||
+                    hasNodeWithText(rootNode, "Force stop") ||
+                    hasNodeWithText(rootNode, "Disable")
+                ) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    private fun triggerAntiCheatDelay() {
+        performGlobalAction(GLOBAL_ACTION_HOME)
+        val coolingIntent = Intent(this, CoolingOffActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        startActivity(coolingIntent)
     }
 
     private fun checkIfInReelsOrShorts(packageName: String, event: AccessibilityEvent): Boolean {
@@ -98,7 +149,6 @@ class ShieldAccessibilityService : AccessibilityService() {
         val rootNode = rootInActiveWindow ?: return false
 
         when (packageName) {
-            // Instagram Reels
             "com.instagram.android" -> {
                 if (className.contains("ClipsViewerActivity", ignoreCase = true)) {
                     return true
@@ -110,7 +160,6 @@ class ShieldAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // YouTube Shorts
             "com.google.android.youtube" -> {
                 if (className.contains("Shorts", ignoreCase = true) ||
                     className.contains("ReelWatchFragment", ignoreCase = true)
@@ -124,7 +173,6 @@ class ShieldAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // Facebook Reels
             "com.facebook.katana" -> {
                 if (className.contains("Reels", ignoreCase = true) ||
                     hasNodeWithText(rootNode, "Reels")
@@ -133,7 +181,6 @@ class ShieldAccessibilityService : AccessibilityService() {
                 }
             }
 
-            // Snapchat Spotlight
             "com.snapchat.android" -> {
                 if (hasNodeWithText(rootNode, "Spotlight") ||
                     hasNodeWithContentDescription(rootNode, "Spotlight")
@@ -162,10 +209,7 @@ class ShieldAccessibilityService : AccessibilityService() {
     }
 
     private fun triggerBlock(reason: String) {
-        // Step 1: Force kickout to Android Home Screen immediately
         performGlobalAction(GLOBAL_ACTION_HOME)
-
-        // Step 2: Launch Fullscreen Shield Screen
         val blockIntent = Intent(this, BlockActivity::class.java).apply {
             putExtra(BlockActivity.EXTRA_REASON, reason)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP

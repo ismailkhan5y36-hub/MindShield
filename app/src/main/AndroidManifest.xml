@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Permissions -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
 
     <application
         android:allowBackup="true"
@@ -38,6 +40,14 @@
         <activity
             android:name=".MindResetActivity"
             android:exported="false"
+            android:theme="@style/Theme.MindShield.Fullscreen" />
+
+        <!-- 2-Hour Cooling-Off Anti-Cheat Activity -->
+        <activity
+            android:name=".CoolingOffActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.MindShield.Fullscreen" />
 
         <!-- Periodic Hourly Reminder Receiver -->

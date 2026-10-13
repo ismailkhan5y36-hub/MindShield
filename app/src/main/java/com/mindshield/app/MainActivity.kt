@@ -27,6 +27,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var quotaManager: DailyQuotaManager
     private lateinit var productivityManager: ProductivityManager
+    private lateinit var antiCheatManager: AntiCheatManager
 
     // Header & Tabs
     private lateinit var tvHeaderSubtitle: TextView
@@ -47,6 +48,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnAccessibility: MaterialButton
     private lateinit var btnOverlay: MaterialButton
     private lateinit var btnBattery: MaterialButton
+
+    // Tab 1: Time Saved & Screen Time Views
+    private lateinit var tvTimeSavedWeekly: TextView
+    private lateinit var tvTotalScreenTime: TextView
+    private lateinit var btnUsagePermission: MaterialButton
+    private lateinit var rvAppUsage: RecyclerView
+    private lateinit var appUsageAdapter: AppUsageAdapter
 
     // Tab 2: Goals Views
     private lateinit var tvGoalsPercentage: TextView
@@ -70,6 +78,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStreakDays: TextView
     private lateinit var btnOpenMindReset: MaterialButton
     private lateinit var switchReminders: SwitchCompat
+    private lateinit var switchAntiCheat: SwitchCompat
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,10 +86,12 @@ class MainActivity : AppCompatActivity() {
 
         quotaManager = DailyQuotaManager(this)
         productivityManager = ProductivityManager(this)
+        antiCheatManager = AntiCheatManager(this)
 
         initViews()
         setupBottomNavigation()
         setupShieldListeners()
+        setupScreenTimeView()
         setupGoals()
         setupFocusTimer()
         setupMindset()
@@ -111,6 +122,12 @@ class MainActivity : AppCompatActivity() {
         btnOverlay = findViewById(R.id.btnOverlay)
         btnBattery = findViewById(R.id.btnBattery)
 
+        // Time Saved & Screen Time
+        tvTimeSavedWeekly = findViewById(R.id.tvTimeSavedWeekly)
+        tvTotalScreenTime = findViewById(R.id.tvTotalScreenTime)
+        btnUsagePermission = findViewById(R.id.btnUsagePermission)
+        rvAppUsage = findViewById(R.id.rvAppUsage)
+
         // Goals views
         tvGoalsPercentage = findViewById(R.id.tvGoalsPercentage)
         pbGoalsProgress = findViewById(R.id.pbGoalsProgress)
@@ -129,6 +146,7 @@ class MainActivity : AppCompatActivity() {
         tvStreakDays = findViewById(R.id.tvStreakDays)
         btnOpenMindReset = findViewById(R.id.btnOpenMindReset)
         switchReminders = findViewById(R.id.switchReminders)
+        switchAntiCheat = findViewById(R.id.switchAntiCheat)
     }
 
     private fun setupBottomNavigation() {
@@ -163,7 +181,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // --- TAB 1: SHIELD LOGIC ---
+    // --- TAB 1: SHIELD & SCREEN TIME LOGIC ---
     private fun setupShieldListeners() {
         btnAccessibility.setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -191,6 +209,29 @@ class MainActivity : AppCompatActivity() {
                     startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                 }
             }
+        }
+
+        btnUsagePermission.setOnClickListener {
+            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        }
+    }
+
+    private fun setupScreenTimeView() {
+        rvAppUsage.layoutManager = LinearLayoutManager(this)
+        appUsageAdapter = AppUsageAdapter(emptyList())
+        rvAppUsage.adapter = appUsageAdapter
+    }
+
+    private fun updateScreenTimeStats() {
+        if (!UsageStatsHelper.hasUsageStatsPermission(this)) {
+            btnUsagePermission.visibility = View.VISIBLE
+            tvTotalScreenTime.text = "Permission Required (Click Grant)"
+            appUsageAdapter.updateList(emptyList())
+        } else {
+            btnUsagePermission.visibility = View.GONE
+            val (totalMillis, topApps) = UsageStatsHelper.getDailyUsageStats(this)
+            tvTotalScreenTime.text = "Total: ${UsageStatsHelper.formatDuration(totalMillis)} Today"
+            appUsageAdapter.updateList(topApps)
         }
     }
 
@@ -295,7 +336,7 @@ class MainActivity : AppCompatActivity() {
         tvFocusSessionsCount.text = "Completed Today: $sessions Sessions"
     }
 
-    // --- TAB 4: MINDSET & REMINDERS LOGIC ---
+    // --- TAB 4: MINDSET & ANTI-CHEAT LOGIC ---
     private fun setupMindset() {
         btnOpenMindReset.setOnClickListener {
             startActivity(Intent(this, MindResetActivity::class.java))
@@ -305,6 +346,12 @@ class MainActivity : AppCompatActivity() {
         switchReminders.setOnCheckedChangeListener { _, isChecked ->
             productivityManager.setRemindersEnabled(isChecked)
             configureHourlyReminder(isChecked)
+        }
+
+        // 2-Hour Anti-Cheat (Default ON)
+        switchAntiCheat.isChecked = antiCheatManager.isAntiCheatEnabled()
+        switchAntiCheat.setOnCheckedChangeListener { _, isChecked ->
+            antiCheatManager.setAntiCheatEnabled(isChecked)
         }
     }
 
@@ -346,7 +393,7 @@ class MainActivity : AppCompatActivity() {
         if (isServiceOn) {
             viewStatusDot.setBackgroundColor(ContextCompat.getColor(this, R.color.success))
             tvServiceStatus.text = "Focus Shield Active"
-            tvStatusDesc.text = "Reels quota aur distraction filter 100% active hain."
+            tvStatusDesc.text = "Reels quota aur 2-hour anti-cheat 100% active hain."
             btnAccessibility.text = "✓ Accessibility Service Enabled"
             btnAccessibility.strokeColor = ContextCompat.getColorStateList(this, R.color.success)
         } else {
@@ -391,6 +438,12 @@ class MainActivity : AppCompatActivity() {
             tvRemainingLabel.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
         }
 
+        // Time Saved Life Counter
+        val streak = productivityManager.getStreakDays()
+        val savedHours = streak * 2
+        tvTimeSavedWeekly.text = "Mashallah! ${savedHours}h+ Saved This Week"
+
+        updateScreenTimeStats()
         updateGoalsList()
         updateFocusUI()
         updateMindsetUI()
