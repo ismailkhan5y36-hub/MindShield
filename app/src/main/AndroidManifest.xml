@@ -50,9 +50,22 @@
             android:launchMode="singleTask"
             android:theme="@style/Theme.MindShield.Fullscreen" />
 
+        <!-- 5-Second Mindful Pause Activity -->
+        <activity
+            android:name=".MindfulPauseActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.MindShield.Fullscreen" />
+
         <!-- Periodic Hourly Reminder Receiver -->
         <receiver
             android:name=".ReminderReceiver"
+            android:exported="false" />
+
+        <!-- Daily 9:30 PM Victory Scorecard Receiver -->
+        <receiver
+            android:name=".VictoryScorecardReceiver"
             android:exported="false" />
 
         <!-- Core Accessibility Service for Real-time Reel & Content Protection -->

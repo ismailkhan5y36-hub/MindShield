@@ -95,6 +95,7 @@ class MainActivity : AppCompatActivity() {
         setupGoals()
         setupFocusTimer()
         setupMindset()
+        configureDailyVictoryScorecard()
     }
 
     override fun onResume() {
@@ -381,6 +382,33 @@ class MainActivity : AppCompatActivity() {
         } else {
             alarmManager.cancel(pendingIntent)
         }
+    }
+
+    private fun configureDailyVictoryScorecard() {
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(this, VictoryScorecardReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            this,
+            2002,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val calendar = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 21)
+            set(java.util.Calendar.MINUTE, 30)
+            set(java.util.Calendar.SECOND, 0)
+            if (before(java.util.Calendar.getInstance())) {
+                add(java.util.Calendar.DAY_OF_MONTH, 1)
+            }
+        }
+
+        alarmManager.setRepeating(
+            AlarmManager.RTC_WAKEUP,
+            calendar.timeInMillis,
+            AlarmManager.INTERVAL_DAY,
+            pendingIntent
+        )
     }
 
     // --- DASHBOARD UPDATER ---

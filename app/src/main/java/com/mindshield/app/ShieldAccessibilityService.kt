@@ -14,6 +14,17 @@ class ShieldAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var isCurrentlyInReels = false
 
+    // Mindful Pause cooldown tracker (package -> last trigger timestamp)
+    private val pauseCooldownMap = mutableMapOf<String, Long>()
+    private val PAUSE_COOLDOWN_MS = 15 * 60 * 1000L // 15 mins cooldown
+
+    private val triggerAppsForPause = setOf(
+        "com.instagram.android",
+        "com.google.android.youtube",
+        "com.zhiliaoapp.musically",
+        "com.ss.android.ugc.trill"
+    )
+
     // Target packages for short videos
     private val shortVideoPackages = setOf(
         "com.zhiliaoapp.musically",
@@ -37,6 +48,22 @@ class ShieldAccessibilityService : AccessibilityService() {
         "com.android.packageinstaller",
         "com.transsion.freezer",
         "com.transsion.appmanager"
+    )
+
+    // Bypassing tools search keywords in Google Play Store
+    private val restrictedPlayStoreSearches = listOf(
+        "vpn", "proxy", "turbo vpn", "nord vpn", "super vpn",
+        "snack video", "tiktok lite", "instagram lite"
+    )
+
+    // Incognito tab indicator keywords
+    private val incognitoKeywords = listOf(
+        "incognito", "inprivate", "private tab", "close incognito tabs"
+    )
+
+    // MovieBox restricted section keywords (Midnight section blocker)
+    private val movieBoxMidnightKeywords = listOf(
+        "midnight", "midnight section", "midnight movie", "midnight movies", "midnight cinema"
     )
 
     // Harmful search keywords (monitored silently for auto-kickout)
@@ -72,6 +99,11 @@ class ShieldAccessibilityService : AccessibilityService() {
         if (event == null) return
         val packageName = event.packageName?.toString() ?: return
 
+        // --- RULE 0: EMERGENCY WHITELIST (NEVER BLOCKED) ---
+        if (EmergencyWhitelist.isWhitelisted(packageName)) {
+            return
+        }
+
         // --- RULE 1: ANTI-CHEAT & ANTI-FREEZER (2-HOUR DELAY LOCK) ---
         if (antiCheatManager.isAntiCheatEnabled() && !antiCheatManager.isMaintenanceWindowOpen()) {
             if (isAntiCheatViolation(packageName, event)) {
@@ -81,17 +113,49 @@ class ShieldAccessibilityService : AccessibilityService() {
             }
         }
 
-        // --- RULE 2: HARMFUL SEARCHES IN BROWSERS (INSTANT HOME KICKOUT) ---
-        if (browsers.contains(packageName)) {
+        // --- RULE 2: MOVIEBOX "MIDNIGHT" SECTION BLOCKER ---
+        if (packageName.contains("moviebox", ignoreCase = true) || isMovieBoxApp(packageName)) {
             val rootNode = rootInActiveWindow
-            if (rootNode != null && containsRestrictedKeyword(rootNode)) {
-                quotaManager.recordDistractionBlock()
-                triggerBlock(BlockActivity.REASON_DISTRACTION)
+            if (rootNode != null && isMovieBoxMidnightSection(rootNode)) {
+                performGlobalAction(GLOBAL_ACTION_BACK)
                 return
             }
         }
 
-        // --- RULE 3: REELS / SHORTS (60 MINS DAILY QUOTA) ---
+        // --- RULE 3: INCOGNITO / PRIVATE TAB BLOCKER (CHROME, PHOENIX, ETC.) ---
+        if (browsers.contains(packageName)) {
+            val rootNode = rootInActiveWindow
+            if (rootNode != null && isIncognitoModeActive(rootNode)) {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                return
+            }
+        }
+
+        // --- RULE 4: VPN & CLONE APP GUARD ON GOOGLE PLAY STORE ---
+        if (packageName == "com.android.vending") {
+            val rootNode = rootInActiveWindow
+            if (rootNode != null && isPlayStoreRestrictedSearch(rootNode)) {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                return
+            }
+        }
+
+        // --- RULE 5: HARMFUL SEARCHES (CLEAN DISMISSAL - SILENT HOME KICKOUT) ---
+        if (browsers.contains(packageName)) {
+            val rootNode = rootInActiveWindow
+            if (rootNode != null && containsRestrictedKeyword(rootNode)) {
+                quotaManager.recordDistractionBlock()
+                performGlobalAction(GLOBAL_ACTION_HOME)
+                return
+            }
+        }
+
+        // --- RULE 6: 5-SECOND MINDFUL PAUSE (DOPAMINE FRICTION) ---
+        if (triggerAppsForPause.contains(packageName) && event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            checkAndTriggerMindfulPause(packageName)
+        }
+
+        // --- RULE 7: REELS / SHORTS (60 MINS DAILY QUOTA) ---
         val inReels = checkIfInReelsOrShorts(packageName, event)
 
         if (inReels) {
@@ -106,8 +170,83 @@ class ShieldAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun isMovieBoxApp(packageName: String): Boolean {
+        return packageName.contains("moviebox", ignoreCase = true) ||
+                packageName.contains("showbox", ignoreCase = true) ||
+                packageName == "com.mb.moviebox" ||
+                packageName == "com.community.moviebox"
+    }
+
+    private fun isMovieBoxMidnightSection(node: AccessibilityNodeInfo): Boolean {
+        val text = node.text?.toString()?.lowercase() ?: ""
+        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+
+        for (kw in movieBoxMidnightKeywords) {
+            if (text.contains(kw) || desc.contains(kw)) {
+                return true
+            }
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null && isMovieBoxMidnightSection(child)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun isIncognitoModeActive(node: AccessibilityNodeInfo): Boolean {
+        val text = node.text?.toString()?.lowercase() ?: ""
+        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+
+        for (kw in incognitoKeywords) {
+            if (text.contains(kw) || desc.contains(kw)) {
+                return true
+            }
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null && isIncognitoModeActive(child)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun isPlayStoreRestrictedSearch(node: AccessibilityNodeInfo): Boolean {
+        val text = node.text?.toString()?.lowercase() ?: ""
+        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+
+        for (kw in restrictedPlayStoreSearches) {
+            if (text.contains(kw) || desc.contains(kw)) {
+                return true
+            }
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null && isPlayStoreRestrictedSearch(child)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun checkAndTriggerMindfulPause(packageName: String) {
+        val now = System.currentTimeMillis()
+        val lastTrigger = pauseCooldownMap[packageName] ?: 0L
+        if (now - lastTrigger > PAUSE_COOLDOWN_MS) {
+            pauseCooldownMap[packageName] = now
+            val pauseIntent = Intent(this, MindfulPauseActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            startActivity(pauseIntent)
+        }
+    }
+
     private fun isAntiCheatViolation(packageName: String, event: AccessibilityEvent): Boolean {
-        // Direct attempt via Package Installer or Tecno Freezer
         if (antiCheatTargetPackages.contains(packageName)) {
             val rootNode = rootInActiveWindow ?: return true
             if (hasNodeWithText(rootNode, "MindShield") || packageName.contains("freezer")) {
@@ -115,11 +254,9 @@ class ShieldAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Attempting to clear data, force-stop, or uninstall from Android Settings
         if (packageName == "com.android.settings") {
             val rootNode = rootInActiveWindow ?: return false
             if (hasNodeWithText(rootNode, "MindShield")) {
-                // If on MindShield App Info screen in Settings
                 if (hasNodeWithText(rootNode, "Uninstall") ||
                     hasNodeWithText(rootNode, "Force stop") ||
                     hasNodeWithText(rootNode, "Disable")
