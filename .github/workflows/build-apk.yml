@@ -30,9 +30,7 @@ jobs:
           chmod +x gradlew
 
       - name: Build Debug APK
-        run: |
-          set -o pipefail
-          ./gradlew assembleDebug --stacktrace 2>&1 | tee build.log
+        run: ./gradlew assembleDebug --stacktrace
 
       - name: Push build log always
         if: always()
