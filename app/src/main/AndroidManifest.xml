@@ -58,6 +58,27 @@
             android:launchMode="singleTask"
             android:theme="@style/Theme.MindShield.Fullscreen" />
 
+        <!-- 3-Minute Cold Friction Lock Activity (Urge Dopamine Breaker) -->
+        <activity
+            android:name=".ColdFrictionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.MindShield.Fullscreen" />
+
+        <!-- Device Administrator Hardware Lock Receiver -->
+        <receiver
+            android:name=".ShieldDeviceAdminReceiver"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:exported="true">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_policy" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Periodic Hourly Reminder Receiver -->
         <receiver
             android:name=".ReminderReceiver"

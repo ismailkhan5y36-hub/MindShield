@@ -48,6 +48,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnAccessibility: MaterialButton
     private lateinit var btnOverlay: MaterialButton
     private lateinit var btnBattery: MaterialButton
+    private lateinit var btnDeviceAdmin: MaterialButton
+    private lateinit var tvRiskStatus: TextView
 
     // Tab 1: Time Saved & Screen Time Views
     private lateinit var tvTimeSavedWeekly: TextView
@@ -122,6 +124,8 @@ class MainActivity : AppCompatActivity() {
         btnAccessibility = findViewById(R.id.btnAccessibility)
         btnOverlay = findViewById(R.id.btnOverlay)
         btnBattery = findViewById(R.id.btnBattery)
+        btnDeviceAdmin = findViewById(R.id.btnDeviceAdmin)
+        tvRiskStatus = findViewById(R.id.tvRiskStatus)
 
         // Time Saved & Screen Time
         tvTimeSavedWeekly = findViewById(R.id.tvTimeSavedWeekly)
@@ -209,6 +213,12 @@ class MainActivity : AppCompatActivity() {
                 } catch (e: Exception) {
                     startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                 }
+            }
+        }
+
+        btnDeviceAdmin.setOnClickListener {
+            if (!isDeviceAdminActive()) {
+                requestDeviceAdmin()
             }
         }
 
@@ -446,6 +456,22 @@ class MainActivity : AppCompatActivity() {
             btnBattery.text = "3. Tecno/HiOS Battery Exemption"
         }
 
+        if (isDeviceAdminActive()) {
+            btnDeviceAdmin.text = "✓ 4. Hardware Uninstall Lock Active"
+            btnDeviceAdmin.strokeColor = ContextCompat.getColorStateList(this, R.color.success)
+        } else {
+            btnDeviceAdmin.text = "4. Enable Hardware Uninstall Lock (Device Admin)"
+            btnDeviceAdmin.strokeColor = ContextCompat.getColorStateList(this, R.color.card_stroke)
+        }
+
+        if (RiskTimeEngine.isHighRiskWindow()) {
+            tvRiskStatus.text = "🚨 HIGH-RISK ZONE ACTIVE (Maximum Strict AI)"
+            tvRiskStatus.setTextColor(ContextCompat.getColor(this, R.color.danger))
+        } else {
+            tvRiskStatus.text = "🟢 Normal Protection Active"
+            tvRiskStatus.setTextColor(ContextCompat.getColor(this, R.color.success))
+        }
+
         // Reels Quota
         val remainingSecs = quotaManager.getRemainingSeconds()
         val usedSecs = quotaManager.getUsedSeconds()
@@ -486,6 +512,24 @@ class MainActivity : AppCompatActivity() {
 
         return enabledServices.contains(expectedComponentName) ||
                 enabledServices.contains(ShieldAccessibilityService::class.java.simpleName)
+    }
+
+    private fun isDeviceAdminActive(): Boolean {
+        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+        val componentName = android.content.ComponentName(this, ShieldDeviceAdminReceiver::class.java)
+        return dpm.isAdminActive(componentName)
+    }
+
+    private fun requestDeviceAdmin() {
+        val componentName = android.content.ComponentName(this, ShieldDeviceAdminReceiver::class.java)
+        val intent = Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+            putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, componentName)
+            putExtra(
+                android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "MindShield Hardware Lock: Disables the Uninstall button to protect you during intense dopamine urges."
+            )
+        }
+        startActivity(intent)
     }
 
     override fun onDestroy() {

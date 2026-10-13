@@ -99,8 +99,22 @@ class ShieldAccessibilityService : AccessibilityService() {
         if (now - lastDismissActionTime > DISMISS_COOLDOWN_MS) {
             lastDismissActionTime = now
             quotaManager.recordDistractionBlock()
-            performGlobalAction(GLOBAL_ACTION_BACK)
+
+            // Idea 1 & 2: During High-Risk Urge Windows (2-5 PM, 9 PM-6 AM, Sunday), trigger 3-Minute Cold Friction Lock!
+            if (RiskTimeEngine.isHighRiskWindow(now)) {
+                triggerColdFrictionLock()
+            } else {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+            }
         }
+    }
+
+    private fun triggerColdFrictionLock() {
+        performGlobalAction(GLOBAL_ACTION_HOME)
+        val frictionIntent = Intent(this, ColdFrictionActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        startActivity(frictionIntent)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -271,6 +285,17 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         if (isTryingToTurnOff) {
             return true // Instantly lock with 2-hour delay! Urge loophole closed!
+        }
+
+        // 2b. CHECK IF USER IS TRYING TO DEACTIVATE DEVICE ADMIN
+        if (packageName == "com.android.settings") {
+            if (content.contains("mindshield") && (
+                content.contains("deactivate") ||
+                content.contains("remove device admin") ||
+                content.contains("disable device admin")
+            )) {
+                return true // Block device admin removal during urges!
+            }
         }
 
         // 3. Package Installer: Allow Update, Block Uninstall
