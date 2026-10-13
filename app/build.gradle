@@ -11,19 +11,32 @@ android {
         applicationId "com.mindshield.app"
         minSdk 26
         targetSdk 34
-        versionCode 4
-        versionName "3.1.0"
+        versionCode 5
+        versionName "3.2.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        release {
+            storeFile file("mindshield.keystore")
+            storePassword "mindshield123"
+            keyAlias "mindshield"
+            keyPassword "mindshield123"
+            storeType "PKCS12"
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
-            applicationIdSuffix ".debug"
+            signingConfig signingConfigs.release
             debuggable true
         }
     }

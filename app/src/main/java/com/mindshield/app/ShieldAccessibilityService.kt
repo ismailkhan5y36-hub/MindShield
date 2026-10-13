@@ -111,9 +111,22 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         val rootNode = rootInActiveWindow
 
-        // --- RULE 2: MOVIEBOX "MIDNIGHT 18+" SECTION BLOCKER ---
-        if (isMovieBoxApp(packageName)) {
-            if (rootNode != null && SmartFilterEngine.shouldBlockContent(packageName, rootNode)) {
+        // --- RULE 2: MOVIEBOX / MANGOTV "MIDNIGHT 18+" SECTION BLOCKER ---
+        if (SmartFilterEngine.isMovieBoxOrMangoTV(packageName, rootNode)) {
+            // Instant tab click detection
+            if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+                val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
+                val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
+                if (evText.contains("midnight") || evDesc.contains("midnight") ||
+                    evText.contains("novelhub") || evDesc.contains("novelhub")
+                ) {
+                    quotaManager.recordDistractionBlock()
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    return
+                }
+            }
+
+            if (rootNode != null && SmartFilterEngine.evaluateMovieBoxContent(rootNode) == FilterDecision.DISMISS_SECTION_BACK) {
                 quotaManager.recordDistractionBlock()
                 performGlobalAction(GLOBAL_ACTION_BACK)
                 return
@@ -130,11 +143,14 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         // --- RULE 4: SMART ON-DEVICE FILTER (BROWSERS, VIDMATE, WEBVIEWS) ---
         if (webBrowsersAndDownloaders.contains(packageName) || packageName.contains("vidmate", ignoreCase = true)) {
-            if (rootNode != null && SmartFilterEngine.shouldBlockContent(packageName, rootNode)) {
-                quotaManager.recordDistractionBlock()
-                // Silent Home Kickout (Clean, discreet, zero embarrassment)
-                performGlobalAction(GLOBAL_ACTION_HOME)
-                return
+            if (rootNode != null) {
+                val decision = SmartFilterEngine.evaluateBrowserContent(rootNode)
+                if (decision == FilterDecision.DISMISS_TAB_BACK) {
+                    quotaManager.recordDistractionBlock()
+                    // Surgical Tab Dismissal: GLOBAL_ACTION_BACK closes the tab/page, leaves browser open!
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    return
+                }
             }
         }
 
@@ -164,13 +180,6 @@ class ShieldAccessibilityService : AccessibilityService() {
         } else {
             stopTicker()
         }
-    }
-
-    private fun isMovieBoxApp(packageName: String): Boolean {
-        return packageName.contains("moviebox", ignoreCase = true) ||
-                packageName.contains("showbox", ignoreCase = true) ||
-                packageName == "com.mb.moviebox" ||
-                packageName == "com.community.moviebox"
     }
 
     private fun isIncognitoModeActive(node: AccessibilityNodeInfo): Boolean {
@@ -234,24 +243,22 @@ class ShieldAccessibilityService : AccessibilityService() {
         collectAllNodeTexts(rootNode, allTexts)
         val content = allTexts.joinToString(" ").lowercase()
 
-        // 2. NEVER BLOCK LEGITIMATE PERMISSION & SETUP SCREENS
-        if (content.contains("display over other apps") ||
-            content.contains("appear on top") ||
-            content.contains("draw over other apps") ||
-            content.contains("allow display") ||
-            content.contains("usage access") ||
-            content.contains("usage stats") ||
-            content.contains("battery") ||
-            content.contains("unrestricted") ||
-            content.contains("restricted settings") ||
-            content.contains("accessibility") ||
-            content.contains("special app access")
-        ) {
-            return false // Always allow setup permissions!
+        // 2. CHECK IF USER IS TRYING TO STOP / TURN OFF MINDSHIELD IN ACCESSIBILITY SETTINGS
+        val isTryingToTurnOff = content.contains("stop mindshield") ||
+                content.contains("turn off mindshield") ||
+                content.contains("disable mindshield") ||
+                (content.contains("stop") && content.contains("turning off")) ||
+                (content.contains("stop service") && content.contains("mindshield"))
+
+        if (isTryingToTurnOff) {
+            return true // Instantly lock with 2-hour delay! Urge loophole closed!
         }
 
-        // 3. Package Installer uninstallation attempt
+        // 3. Package Installer: Allow Update, Block Uninstall
         if (antiCheatTargetPackages.contains(packageName)) {
+            if (content.contains("update") || content.contains("installing")) {
+                return false // Always allow updates!
+            }
             if (content.contains("mindshield") && (content.contains("uninstall") || content.contains("delete"))) {
                 return true
             }
@@ -267,6 +274,22 @@ class ShieldAccessibilityService : AccessibilityService() {
                     return true
                 }
             }
+        }
+
+        // 5. LEGITIMATE PERMISSION & SETUP SCREENS (Display Over Apps, Usage, Battery)
+        if (content.contains("display over other apps") ||
+            content.contains("appear on top") ||
+            content.contains("draw over other apps") ||
+            content.contains("allow display") ||
+            content.contains("usage access") ||
+            content.contains("usage stats") ||
+            content.contains("battery") ||
+            content.contains("unrestricted") ||
+            content.contains("restricted settings") ||
+            content.contains("accessibility") ||
+            content.contains("special app access")
+        ) {
+            return false // Always allow initial setup permissions!
         }
 
         return false
