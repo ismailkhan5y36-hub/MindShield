@@ -2,10 +2,11 @@ name: Build MindShield APK
 
 on:
   push:
-    branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -21,17 +22,27 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.4'
+      - name: Make gradlew executable
+        run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace
 
-      - name: Upload APK Artifact
+      - name: Copy APK to root
+        run: cp app/build/outputs/apk/debug/app-debug.apk MindShield.apk
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MindShield-App-Debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: MindShield-APK
+          path: MindShield.apk
           retention-days: 14
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: "MindShield v1.0.0"
+          files: MindShield.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
