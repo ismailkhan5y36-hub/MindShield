@@ -30,7 +30,19 @@ jobs:
           chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --stacktrace 2>&1 | tee build.log
+
+      - name: Push build log on failure
+        if: failure()
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git checkout -B build-log
+          git add -f build.log
+          git commit -m "Build error log"
+          git push -f origin build-log
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
