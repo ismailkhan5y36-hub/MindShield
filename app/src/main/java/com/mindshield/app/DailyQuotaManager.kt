@@ -25,7 +25,7 @@ class DailyQuotaManager(context: Context) {
 
     private fun checkAndResetDaily() {
         val today = getTodayDateString()
-        val lastDate = prefs.getString(KEY_LAST_DATE, "")
+        val lastDate = prefs.getString(KEY_LAST_DATE, "") ?: ""
         if (today != lastDate) {
             prefs.edit()
                 .putString(KEY_LAST_DATE, today)

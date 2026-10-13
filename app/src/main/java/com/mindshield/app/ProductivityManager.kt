@@ -86,7 +86,7 @@ class ProductivityManager(context: Context) {
 
     private fun checkAndAdvanceStreak() {
         val today = getTodayDate()
-        val lastDate = prefs.getString(KEY_LAST_STREAK_DATE, "")
+        val lastDate = prefs.getString(KEY_LAST_STREAK_DATE, "") ?: ""
         if (lastDate.isEmpty()) {
             prefs.edit().putString(KEY_LAST_STREAK_DATE, today).putInt(KEY_STREAK, 1).apply()
         }
@@ -95,7 +95,7 @@ class ProductivityManager(context: Context) {
     // --- Focus Sessions (Pomodoro) ---
     fun getFocusSessionsToday(): Int {
         val today = getTodayDate()
-        val lastDate = prefs.getString(KEY_LAST_FOCUS_DATE, "")
+        val lastDate = prefs.getString(KEY_LAST_FOCUS_DATE, "") ?: ""
         if (today != lastDate) {
             prefs.edit().putString(KEY_LAST_FOCUS_DATE, today).putInt(KEY_FOCUS_SESSIONS, 0).apply()
             return 0
