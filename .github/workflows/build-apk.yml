@@ -31,16 +31,17 @@ jobs:
 
       - name: Build Debug APK
         run: |
+          set -o pipefail
           ./gradlew assembleDebug --stacktrace 2>&1 | tee build.log
 
-      - name: Push build log on failure
-        if: failure()
+      - name: Push build log always
+        if: always()
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git checkout -B build-log
           git add -f build.log
-          git commit -m "Build failed log"
+          git commit -m "Build log run ${{ github.run_id }}" || true
           git push -f origin build-log
 
       - name: Copy APK to root
