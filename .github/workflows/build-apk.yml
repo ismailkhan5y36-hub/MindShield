@@ -29,19 +29,30 @@ jobs:
 
       - name: Build Debug APK
         run: |
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug --stacktrace > build.log 2>&1 || {
+            echo "### Build Failed Log" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -n 120 build.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat build.log
+            exit 1
+          }
 
       - name: Copy APK to root
         run: cp app/build/outputs/apk/debug/app-debug.apk MindShield.apk
 
       - name: Upload Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: MindShield-APK
-          path: MindShield.apk
+          name: MindShield-Build-Artifact
+          path: |
+            MindShield.apk
+            build.log
           retention-days: 14
 
       - name: Publish Release
+        if: success()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.0
