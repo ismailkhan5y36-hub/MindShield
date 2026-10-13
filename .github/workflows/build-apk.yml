@@ -28,6 +28,8 @@ jobs:
         run: |
           sed -i 's/\r$//' gradlew
           chmod +x gradlew
+          # Strip UTF-8 BOM from all gradle files (Windows sometimes adds it)
+          find . -name "*.gradle" -o -name "*.properties" | xargs sed -i 's/^\xef\xbb\xbf//'
 
       - name: Build Debug APK
         run: |
