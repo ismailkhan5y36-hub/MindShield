@@ -24,48 +24,24 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Fix gradlew, BOM and line endings
+      - name: Fix gradlew permissions
         run: |
           sed -i 's/\r$//' gradlew
           chmod +x gradlew
-          # Rewrite settings.gradle completely without BOM
-          cat > settings.gradle << 'ENDOFFILE'
-pluginManagement {
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
-
-rootProject.name = "MindShield"
-include ':app'
-ENDOFFILE
-          # Rewrite root build.gradle completely without BOM
-          cat > build.gradle << 'ENDOFFILE2'
-plugins {
-    id 'com.android.application' version '8.3.2' apply false
-    id 'org.jetbrains.kotlin.android' version '1.9.23' apply false
-}
-
-tasks.register('clean', Delete) {
-    delete rootProject.layout.buildDirectory
-}
-ENDOFFILE2
-          echo "Files rewritten. First bytes:"
-          xxd settings.gradle | head -1
-          xxd build.gradle | head -1
 
       - name: Build Debug APK
         run: |
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug --stacktrace 2>&1 | tee build.log
+
+      - name: Push build log on failure
+        if: failure()
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git checkout -B build-log
+          git add -f build.log
+          git commit -m "Build failed log"
+          git push -f origin build-log
 
       - name: Copy APK to root
         run: cp app/build/outputs/apk/debug/app-debug.apk MindShield.apk
@@ -80,6 +56,7 @@ ENDOFFILE2
           git push -f origin release-apk
 
       - name: Upload Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: MindShield-APK
