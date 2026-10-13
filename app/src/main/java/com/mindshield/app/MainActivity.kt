@@ -8,11 +8,11 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
-import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.google.android.material.button.MaterialButton
 
 class MainActivity : AppCompatActivity() {
 
@@ -26,9 +26,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvUsedToday: TextView
     private lateinit var pbQuota: ProgressBar
 
-    private lateinit var btnAccessibility: Button
-    private lateinit var btnOverlay: Button
-    private lateinit var btnBattery: Button
+    private lateinit var btnAccessibility: MaterialButton
+    private lateinit var btnOverlay: MaterialButton
+    private lateinit var btnBattery: MaterialButton
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
