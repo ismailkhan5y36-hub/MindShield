@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">MindShield</string>
+    <string name="accessibility_service_description">MindShield reels monitor aur productivity protection ke liye screen aur app usage detect karta hai taake reels daily 1 hour limit par auto-close ho sakein.</string>
+    <string name="service_active">Shield Active &amp; Protecting</string>
+    <string name="service_inactive">Shield Inactive - Enable Service</string>
+    <string name="daily_limit_title">Reels Daily Quota</string>
+    <string name="daily_limit_subtitle">1 Ghanta (60 Minutes) Limit</string>
+    <string name="enable_accessibility">1. Turn On Accessibility Service</string>
+    <string name="enable_overlay">2. Allow Display Over Apps</string>
+    <string name="enable_battery">3. Exclude from Battery Saver (Tecno/HiOS)</string>
+    <string name="quota_exhausted">Aaj ka 1 ghanta reels quota poora ho chuka hai! Kal tak ke liye blocked.</string>
+</resources>
