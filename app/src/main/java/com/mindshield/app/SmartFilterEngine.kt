@@ -4,44 +4,78 @@ import android.view.accessibility.AccessibilityNodeInfo
 
 enum class FilterDecision {
     ALLOW,
-    DISMISS_TAB_BACK,    // Press GLOBAL_ACTION_BACK to dismiss bad tab/page (Chrome stays open)
-    DISMISS_SECTION_BACK // Press GLOBAL_ACTION_BACK to exit Midnight tab (MovieBox stays open)
+    DISMISS_BACK // Press GLOBAL_ACTION_BACK (surgical tab/page exit)
 }
 
 object SmartFilterEngine {
 
     // 1. High-Confidence Adult Domains (Full domain signatures)
     private val adultDomains = setOf(
-        "pornhub", "xvideos", "xnxx", "xhamster", "brazzers", "redwap",
-        "youporn", "tube8", "spankbang", "eporner", "beeg", "chaturbate",
-        "stripchat", "bongacams", "camsoda", "cam4", "livejasmin", "myfreecams",
-        "onlyfans", "fansly", "manyvids", "clips4sale", "fetlife",
-        "erome", "eroticmv", "fapello", "thothub", "coomer.party", "bunkr",
-        "motherless", "heavy-r", "daftsex", "txxx", "tnaflix", "nuvid",
-        "sunporno", "porntrex", "pornhat", "tubeoff", "hqporner", "netporn",
-        "desi52", "desipapa", "savita bhabhi", "masaladesi", "kamababa",
+        "pornhub.com", "xvideos.com", "xnxx.com", "xhamster.com", "brazzers.com", "redwap.com",
+        "youporn.com", "tube8.com", "spankbang.com", "eporner.com", "beeg.com", "chaturbate.com",
+        "stripchat.com", "bongacams.com", "camsoda.com", "cam4.com", "livejasmin.com", "myfreecams.com",
+        "onlyfans.com", "fansly.com", "manyvids.com", "clips4sale.com", "fetlife.com",
+        "erome.com", "eroticmv.com", "fapello.com", "thothub.com", "coomer.party", "bunkr.is", "bunkr.site",
+        "motherless.com", "heavy-r.com", "daftsex.com", "txxx.com", "tnaflix.com", "nuvid.com",
+        "sunporno.com", "porntrex.com", "pornhat.com", "tubeoff.com", "hqporner.com", "netporn.com",
+        "desi52.com", "desipapa.com", "savita bhabhi", "masaladesi", "kamababa",
         "indianporn", "pakistaniporn", "antvporn", "malluporn", "tamilsex",
-        "hentai", "nhentai", "hanime", "rule34", "gelbooru", "danbooru"
+        "hentai", "nhentai", "hanime.tv", "rule34", "gelbooru", "danbooru"
     )
 
     // 2. Explicit Search Queries (Checked ONLY in address/search inputs)
     private val explicitSearchTerms = setOf(
-        "porn", "xxx", "xnxx", "xvideo", "xhamster", "porno",
+        "porn", "porno", "xvideo", "xvideos", "xnxx", "xhamster",
+        "xxx video", "xxx movie", "xxx porn",
         "sex video", "nude video", "hardcore sex", "blowjob", "creampie", "milf",
         "bhabhi sex", "chudai", "desi mms", "viral mms", "leaked sex",
         "onlyfans leak", "escort service", "adult video", "adult movie"
     )
 
-    // 3. MovieBox / MangoTV Explicit Sections
-    private val midnightSectionNames = setOf(
-        "midnight (18+)", "midnight 18+", "novelhub [hot]", "novelhub",
-        "midnight movie", "midnight movies", "midnight cinema", "adult 18+", "18+ movies"
+    // 3. Blatant Explicit UI Signatures (Applies universally across MovieBox, Streaming apps, and Web)
+    private val explicitUiSignatures = listOf(
+        "porn top videos",
+        "join 18+ channel",
+        "anal sex",
+        "midnight 18",
+        "midnight (18+)",
+        "novelhub [hot]",
+        "ullu drama list",
+        "hardcore sex",
+        "bhabhi sex",
+        "chudai video"
     )
 
     /**
+     * Universal Explicit UI Check:
+     * If ANY app (MovieBox, MangoTV, or Webview) shows blatant porn headers or sections,
+     * returns DISMISS_BACK immediately!
+     */
+    fun checkUniversalExplicitUi(rootNode: AccessibilityNodeInfo): FilterDecision {
+        val allTexts = mutableListOf<String>()
+        collectAllTexts(rootNode, allTexts)
+        if (allTexts.isEmpty()) return FilterDecision.ALLOW
+
+        val combined = allTexts.joinToString(" ").lowercase()
+
+        // 1. Check for blatant explicit UI headers (e.g. MovieBox Midnight tab, Porn Top Videos, etc.)
+        for (sig in explicitUiSignatures) {
+            if (combined.contains(sig)) {
+                return FilterDecision.DISMISS_BACK
+            }
+        }
+
+        // 2. MovieBox specific tab check: Midnight / NovelHub
+        if (isMovieBoxMidnightActive(rootNode)) {
+            return FilterDecision.DISMISS_BACK
+        }
+
+        return FilterDecision.ALLOW
+    }
+
+    /**
      * Checks browsers (Chrome, Phoenix, Firefox, Opera, Brave, VidMate, etc.)
-     * Scans ONLY URL bar, address input, and search queries.
-     * NEVER scans Google Discover news feed or normal page content to avoid false positives.
+     * Scans ONLY URL bar and search query inputs (NOT Discover news feed).
      */
     fun evaluateBrowserContent(rootNode: AccessibilityNodeInfo): FilterDecision {
         val urlAndSearchTexts = mutableListOf<String>()
@@ -56,59 +90,21 @@ object SmartFilterEngine {
         // Check A: Adult Domains
         for (domain in adultDomains) {
             if (combinedInput.contains(domain)) {
-                return FilterDecision.DISMISS_TAB_BACK
+                return FilterDecision.DISMISS_BACK
             }
         }
 
         // Check B: Strict Search Queries (with word boundaries)
         for (term in explicitSearchTerms) {
             if (containsSearchKeyword(combinedInput, term)) {
-                return FilterDecision.DISMISS_TAB_BACK
+                return FilterDecision.DISMISS_BACK
             }
         }
 
         return FilterDecision.ALLOW
     }
 
-    /**
-     * Checks MovieBox / MangoTV.
-     * Returns DISMISS_SECTION_BACK if Midnight (18+) or NovelHub [HOT] tab is active/selected.
-     */
-    fun evaluateMovieBoxContent(rootNode: AccessibilityNodeInfo): FilterDecision {
-        if (isMidnightTabActive(rootNode)) {
-            return FilterDecision.DISMISS_SECTION_BACK
-        }
-        return FilterDecision.ALLOW
-    }
-
-    fun isMovieBoxOrMangoTV(packageName: String, rootNode: AccessibilityNodeInfo?): Boolean {
-        val pkg = packageName.lowercase()
-        if (pkg.contains("moviebox") ||
-            pkg.contains("showbox") ||
-            pkg.contains("mangotv") ||
-            pkg.contains("mango") ||
-            pkg.contains("funtv") ||
-            pkg == "com.mb.moviebox" ||
-            pkg == "com.community.moviebox"
-        ) {
-            return true
-        }
-
-        if (rootNode != null) {
-            val texts = mutableListOf<String>()
-            extractTopLevelTexts(rootNode, texts, maxDepth = 4)
-            val combined = texts.joinToString(" ").lowercase()
-            if (combined.contains("mangotv") ||
-                combined.contains("movieboxhd") ||
-                (combined.contains("cricket") && combined.contains("midnight"))
-            ) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private fun isMidnightTabActive(node: AccessibilityNodeInfo?): Boolean {
+    private fun isMovieBoxMidnightActive(node: AccessibilityNodeInfo?): Boolean {
         if (node == null) return false
 
         val text = node.text?.toString()?.trim()?.lowercase() ?: ""
@@ -117,20 +113,16 @@ object SmartFilterEngine {
         val isSelected = node.isSelected
         val isFocused = node.isFocused
 
-        for (section in midnightSectionNames) {
-            if (text == section || desc == section || text.contains(section) || desc.contains(section)) {
-                // If the section tab is selected or focused, or text indicates header of midnight screen
-                if (isSelected || isFocused || text.equals("midnight (18+)", ignoreCase = true) ||
-                    text.equals("novelhub [hot]", ignoreCase = true)
-                ) {
-                    return true
-                }
-            }
+        val matchesMidnight = text.contains("midnight") || desc.contains("midnight") ||
+                text.contains("novelhub") || desc.contains("novelhub")
+
+        if (matchesMidnight && (isSelected || isFocused)) {
+            return true
         }
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i)
-            if (child != null && isMidnightTabActive(child)) {
+            if (child != null && isMovieBoxMidnightActive(child)) {
                 return true
             }
         }
@@ -141,21 +133,16 @@ object SmartFilterEngine {
         if (node == null) return
 
         val viewId = node.viewIdResourceName?.lowercase() ?: ""
-        val isEditable = node.isEditable
         val text = node.text?.toString()?.trim() ?: ""
         val desc = node.contentDescription?.toString()?.trim() ?: ""
 
-        // Chrome: com.android.chrome:id/url_bar, search_box_text, location_bar
-        val isUrlOrSearch = isEditable ||
-                viewId.contains("url_bar") ||
+        // Only extract actual URL bars or explicit search boxes, NOT generic page inputs!
+        val isUrlBar = viewId.contains("url_bar") ||
                 viewId.contains("search_box") ||
                 viewId.contains("location_bar") ||
-                viewId.contains("address") ||
-                text.startsWith("http://", ignoreCase = true) ||
-                text.startsWith("https://", ignoreCase = true) ||
-                text.startsWith("www.", ignoreCase = true)
+                viewId.contains("address_bar")
 
-        if (isUrlOrSearch) {
+        if (isUrlBar) {
             if (text.isNotBlank()) outList.add(text)
             if (desc.isNotBlank()) outList.add(desc)
         }
@@ -173,8 +160,8 @@ object SmartFilterEngine {
         return pattern.containsMatchIn(input)
     }
 
-    private fun extractTopLevelTexts(node: AccessibilityNodeInfo?, outList: MutableList<String>, maxDepth: Int, currentDepth: Int = 0) {
-        if (node == null || currentDepth > maxDepth) return
+    private fun collectAllTexts(node: AccessibilityNodeInfo?, outList: MutableList<String>) {
+        if (node == null) return
 
         val text = node.text?.toString()?.trim() ?: ""
         val desc = node.contentDescription?.toString()?.trim() ?: ""
@@ -184,7 +171,7 @@ object SmartFilterEngine {
         for (i in 0 until node.childCount) {
             val child = node.getChild(i)
             if (child != null) {
-                extractTopLevelTexts(child, outList, maxDepth, currentDepth + 1)
+                collectAllTexts(child, outList)
             }
         }
     }

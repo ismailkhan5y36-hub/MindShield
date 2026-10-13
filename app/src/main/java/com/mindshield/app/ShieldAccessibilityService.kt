@@ -91,6 +91,18 @@ class ShieldAccessibilityService : AccessibilityService() {
         antiCheatManager = AntiCheatManager(this)
     }
 
+    private var lastDismissActionTime = 0L
+    private val DISMISS_COOLDOWN_MS = 2000L // 2.0s debounce cooldown to prevent rapid-fire BACK presses
+
+    private fun performDebouncedBackAction() {
+        val now = System.currentTimeMillis()
+        if (now - lastDismissActionTime > DISMISS_COOLDOWN_MS) {
+            lastDismissActionTime = now
+            quotaManager.recordDistractionBlock()
+            performGlobalAction(GLOBAL_ACTION_BACK)
+        }
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         val packageName = event.packageName?.toString() ?: return
@@ -111,24 +123,23 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         val rootNode = rootInActiveWindow
 
-        // --- RULE 2: MOVIEBOX / MANGOTV "MIDNIGHT 18+" SECTION BLOCKER ---
-        if (SmartFilterEngine.isMovieBoxOrMangoTV(packageName, rootNode)) {
+        // --- RULE 2: UNIVERSAL EXPLICIT CONTENT & MOVIEBOX MIDNIGHT BLOCKER ---
+        if (rootNode != null) {
             // Instant tab click detection
             if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
                 val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
                 val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
                 if (evText.contains("midnight") || evDesc.contains("midnight") ||
-                    evText.contains("novelhub") || evDesc.contains("novelhub")
+                    evText.contains("novelhub") || evDesc.contains("novelhub") ||
+                    evText.contains("18+ channel") || evDesc.contains("18+ channel")
                 ) {
-                    quotaManager.recordDistractionBlock()
-                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    performDebouncedBackAction()
                     return
                 }
             }
 
-            if (rootNode != null && SmartFilterEngine.evaluateMovieBoxContent(rootNode) == FilterDecision.DISMISS_SECTION_BACK) {
-                quotaManager.recordDistractionBlock()
-                performGlobalAction(GLOBAL_ACTION_BACK)
+            if (SmartFilterEngine.checkUniversalExplicitUi(rootNode) == FilterDecision.DISMISS_BACK) {
+                performDebouncedBackAction()
                 return
             }
         }
@@ -136,19 +147,17 @@ class ShieldAccessibilityService : AccessibilityService() {
         // --- RULE 3: INCOGNITO / PRIVATE TAB BLOCKER (CHROME, PHOENIX, ETC.) ---
         if (webBrowsersAndDownloaders.contains(packageName)) {
             if (rootNode != null && isIncognitoModeActive(rootNode)) {
-                performGlobalAction(GLOBAL_ACTION_BACK)
+                performDebouncedBackAction()
                 return
             }
         }
 
-        // --- RULE 4: SMART ON-DEVICE FILTER (BROWSERS, VIDMATE, WEBVIEWS) ---
+        // --- RULE 4: SMART SURGICAL FILTER (BROWSERS, VIDMATE, WEBVIEWS) ---
         if (webBrowsersAndDownloaders.contains(packageName) || packageName.contains("vidmate", ignoreCase = true)) {
             if (rootNode != null) {
                 val decision = SmartFilterEngine.evaluateBrowserContent(rootNode)
-                if (decision == FilterDecision.DISMISS_TAB_BACK) {
-                    quotaManager.recordDistractionBlock()
-                    // Surgical Tab Dismissal: GLOBAL_ACTION_BACK closes the tab/page, leaves browser open!
-                    performGlobalAction(GLOBAL_ACTION_BACK)
+                if (decision == FilterDecision.DISMISS_BACK) {
+                    performDebouncedBackAction()
                     return
                 }
             }
@@ -233,15 +242,25 @@ class ShieldAccessibilityService : AccessibilityService() {
     }
 
     private fun isAntiCheatViolation(packageName: String, event: AccessibilityEvent): Boolean {
-        // 1. Tecno HiOS Freezer app
-        if (packageName.contains("freezer", ignoreCase = true) || packageName == "com.transsion.freezer") {
-            return true
-        }
-
         val rootNode = rootInActiveWindow ?: return false
         val allTexts = mutableListOf<String>()
         collectAllNodeTexts(rootNode, allTexts)
         val content = allTexts.joinToString(" ").lowercase()
+
+        // 1. TECNO HIOS FREEZER & PHONE MASTER (BLOCK APP FREEZING!)
+        val isFreezerApp = packageName.contains("freezer", ignoreCase = true) ||
+                packageName.contains("phonemanager", ignoreCase = true) ||
+                packageName.contains("hilauncher", ignoreCase = true) ||
+                packageName == "com.transsion.freezer" ||
+                packageName == "com.transsion.phonemanager"
+
+        if (isFreezerApp && (content.contains("freezer") || content.contains("freeze") || content.contains("frozen"))) {
+            return true
+        }
+
+        if (content.contains("freezer") && (content.contains("freeze") || content.contains("add"))) {
+            return true
+        }
 
         // 2. CHECK IF USER IS TRYING TO STOP / TURN OFF MINDSHIELD IN ACCESSIBILITY SETTINGS
         val isTryingToTurnOff = content.contains("stop mindshield") ||
