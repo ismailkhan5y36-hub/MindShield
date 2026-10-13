@@ -224,19 +224,45 @@ class ShieldAccessibilityService : AccessibilityService() {
     }
 
     private fun isAntiCheatViolation(packageName: String, event: AccessibilityEvent): Boolean {
+        // 1. Tecno HiOS Freezer app
+        if (packageName.contains("freezer", ignoreCase = true) || packageName == "com.transsion.freezer") {
+            return true
+        }
+
+        val rootNode = rootInActiveWindow ?: return false
+        val allTexts = mutableListOf<String>()
+        collectAllNodeTexts(rootNode, allTexts)
+        val content = allTexts.joinToString(" ").lowercase()
+
+        // 2. NEVER BLOCK LEGITIMATE PERMISSION & SETUP SCREENS
+        if (content.contains("display over other apps") ||
+            content.contains("appear on top") ||
+            content.contains("draw over other apps") ||
+            content.contains("allow display") ||
+            content.contains("usage access") ||
+            content.contains("usage stats") ||
+            content.contains("battery") ||
+            content.contains("unrestricted") ||
+            content.contains("restricted settings") ||
+            content.contains("accessibility") ||
+            content.contains("special app access")
+        ) {
+            return false // Always allow setup permissions!
+        }
+
+        // 3. Package Installer uninstallation attempt
         if (antiCheatTargetPackages.contains(packageName)) {
-            val rootNode = rootInActiveWindow ?: return true
-            if (hasNodeWithText(rootNode, "MindShield") || packageName.contains("freezer")) {
+            if (content.contains("mindshield") && (content.contains("uninstall") || content.contains("delete"))) {
                 return true
             }
         }
 
+        // 4. Force Stop or Uninstall prompt in Android Settings
         if (packageName == "com.android.settings") {
-            val rootNode = rootInActiveWindow ?: return false
-            if (hasNodeWithText(rootNode, "MindShield")) {
-                if (hasNodeWithText(rootNode, "Uninstall") ||
-                    hasNodeWithText(rootNode, "Force stop") ||
-                    hasNodeWithText(rootNode, "Disable")
+            if (content.contains("mindshield")) {
+                if (content.contains("do you want to uninstall") ||
+                    content.contains("uninstall this app") ||
+                    (content.contains("force stop") && content.contains("if you force stop"))
                 ) {
                     return true
                 }
@@ -244,6 +270,19 @@ class ShieldAccessibilityService : AccessibilityService() {
         }
 
         return false
+    }
+
+    private fun collectAllNodeTexts(node: AccessibilityNodeInfo?, outList: MutableList<String>) {
+        if (node == null) return
+        val text = node.text?.toString()
+        if (!text.isNullOrBlank()) outList.add(text)
+        val desc = node.contentDescription?.toString()
+        if (!desc.isNullOrBlank()) outList.add(desc)
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null) collectAllNodeTexts(child, outList)
+        }
     }
 
     private fun triggerAntiCheatDelay() {
