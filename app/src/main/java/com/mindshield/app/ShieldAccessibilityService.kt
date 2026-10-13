@@ -25,13 +25,14 @@ class ShieldAccessibilityService : AccessibilityService() {
         "com.ss.android.ugc.trill"
     )
 
-    // Target packages for short videos
+    // Short video packages
     private val shortVideoPackages = setOf(
         "com.zhiliaoapp.musically",
         "com.ss.android.ugc.trill"
     )
 
-    private val browsers = setOf(
+    // Standard browsers and in-app webviews (including VidMate & Phoenix)
+    private val webBrowsersAndDownloaders = setOf(
         "com.android.chrome",
         "com.transsion.phoenix", // Tecno & Infinix browser
         "com.sec.android.app.sbrowser",
@@ -39,7 +40,14 @@ class ShieldAccessibilityService : AccessibilityService() {
         "com.opera.browser",
         "com.opera.mini.native",
         "com.brave.browser",
-        "com.google.android.googlequicksearchbox"
+        "com.UCMobile.intl",
+        "com.google.android.googlequicksearchbox",
+        // VidMate & Downloaders (frequent bypass vectors)
+        "com.nemo.vidmate",
+        "com.vidmate.android",
+        "com.video.downloader",
+        "com.allvideodownloader",
+        "com.snaptube.premium"
     )
 
     // Anti-Cheat packages: Package Installer and Tecno/HiOS Freezer
@@ -50,7 +58,7 @@ class ShieldAccessibilityService : AccessibilityService() {
         "com.transsion.appmanager"
     )
 
-    // Bypassing tools search keywords in Google Play Store
+    // Google Play Store bypassing tools searches
     private val restrictedPlayStoreSearches = listOf(
         "vpn", "proxy", "turbo vpn", "nord vpn", "super vpn",
         "snack video", "tiktok lite", "instagram lite"
@@ -59,18 +67,6 @@ class ShieldAccessibilityService : AccessibilityService() {
     // Incognito tab indicator keywords
     private val incognitoKeywords = listOf(
         "incognito", "inprivate", "private tab", "close incognito tabs"
-    )
-
-    // MovieBox restricted section keywords (Midnight section blocker)
-    private val movieBoxMidnightKeywords = listOf(
-        "midnight", "midnight section", "midnight movie", "midnight movies", "midnight cinema"
-    )
-
-    // Harmful search keywords (monitored silently for auto-kickout)
-    private val restrictedKeywords = listOf(
-        "porn", "xxx", "xnxx", "xvideos", "pornhub", "xhamster",
-        "redwap", "brazzers", "sex video", "nude", "adult video",
-        "erotic", "nsfw", "onlyfans leaks"
     )
 
     private val tickerRunnable = object : Runnable {
@@ -99,7 +95,7 @@ class ShieldAccessibilityService : AccessibilityService() {
         if (event == null) return
         val packageName = event.packageName?.toString() ?: return
 
-        // --- RULE 0: EMERGENCY WHITELIST (NEVER BLOCKED) ---
+        // --- RULE 0: EMERGENCY WHITELIST (CRITICAL APPS NEVER BLOCKED) ---
         if (EmergencyWhitelist.isWhitelisted(packageName)) {
             return
         }
@@ -113,39 +109,39 @@ class ShieldAccessibilityService : AccessibilityService() {
             }
         }
 
-        // --- RULE 2: MOVIEBOX "MIDNIGHT" SECTION BLOCKER ---
-        if (packageName.contains("moviebox", ignoreCase = true) || isMovieBoxApp(packageName)) {
-            val rootNode = rootInActiveWindow
-            if (rootNode != null && isMovieBoxMidnightSection(rootNode)) {
+        val rootNode = rootInActiveWindow
+
+        // --- RULE 2: MOVIEBOX "MIDNIGHT 18+" SECTION BLOCKER ---
+        if (isMovieBoxApp(packageName)) {
+            if (rootNode != null && SmartFilterEngine.shouldBlockContent(packageName, rootNode)) {
+                quotaManager.recordDistractionBlock()
                 performGlobalAction(GLOBAL_ACTION_BACK)
                 return
             }
         }
 
         // --- RULE 3: INCOGNITO / PRIVATE TAB BLOCKER (CHROME, PHOENIX, ETC.) ---
-        if (browsers.contains(packageName)) {
-            val rootNode = rootInActiveWindow
+        if (webBrowsersAndDownloaders.contains(packageName)) {
             if (rootNode != null && isIncognitoModeActive(rootNode)) {
                 performGlobalAction(GLOBAL_ACTION_BACK)
                 return
             }
         }
 
-        // --- RULE 4: VPN & CLONE APP GUARD ON GOOGLE PLAY STORE ---
-        if (packageName == "com.android.vending") {
-            val rootNode = rootInActiveWindow
-            if (rootNode != null && isPlayStoreRestrictedSearch(rootNode)) {
-                performGlobalAction(GLOBAL_ACTION_BACK)
+        // --- RULE 4: SMART ON-DEVICE FILTER (BROWSERS, VIDMATE, WEBVIEWS) ---
+        if (webBrowsersAndDownloaders.contains(packageName) || packageName.contains("vidmate", ignoreCase = true)) {
+            if (rootNode != null && SmartFilterEngine.shouldBlockContent(packageName, rootNode)) {
+                quotaManager.recordDistractionBlock()
+                // Silent Home Kickout (Clean, discreet, zero embarrassment)
+                performGlobalAction(GLOBAL_ACTION_HOME)
                 return
             }
         }
 
-        // --- RULE 5: HARMFUL SEARCHES (CLEAN DISMISSAL - SILENT HOME KICKOUT) ---
-        if (browsers.contains(packageName)) {
-            val rootNode = rootInActiveWindow
-            if (rootNode != null && containsRestrictedKeyword(rootNode)) {
-                quotaManager.recordDistractionBlock()
-                performGlobalAction(GLOBAL_ACTION_HOME)
+        // --- RULE 5: VPN & CLONE APP GUARD ON GOOGLE PLAY STORE ---
+        if (packageName == "com.android.vending") {
+            if (rootNode != null && isPlayStoreRestrictedSearch(rootNode)) {
+                performGlobalAction(GLOBAL_ACTION_BACK)
                 return
             }
         }
@@ -175,25 +171,6 @@ class ShieldAccessibilityService : AccessibilityService() {
                 packageName.contains("showbox", ignoreCase = true) ||
                 packageName == "com.mb.moviebox" ||
                 packageName == "com.community.moviebox"
-    }
-
-    private fun isMovieBoxMidnightSection(node: AccessibilityNodeInfo): Boolean {
-        val text = node.text?.toString()?.lowercase() ?: ""
-        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-
-        for (kw in movieBoxMidnightKeywords) {
-            if (text.contains(kw) || desc.contains(kw)) {
-                return true
-            }
-        }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            if (child != null && isMovieBoxMidnightSection(child)) {
-                return true
-            }
-        }
-        return false
     }
 
     private fun isIncognitoModeActive(node: AccessibilityNodeInfo): Boolean {
@@ -352,27 +329,6 @@ class ShieldAccessibilityService : AccessibilityService() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         startActivity(blockIntent)
-    }
-
-    private fun containsRestrictedKeyword(node: AccessibilityNodeInfo?): Boolean {
-        if (node == null) return false
-
-        val text = node.text?.toString()?.lowercase() ?: ""
-        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-
-        for (keyword in restrictedKeywords) {
-            if (text.contains(keyword) || desc.contains(keyword)) {
-                return true
-            }
-        }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            if (child != null && containsRestrictedKeyword(child)) {
-                return true
-            }
-        }
-        return false
     }
 
     private fun hasNodeWithContentDescription(node: AccessibilityNodeInfo?, target: String): Boolean {
