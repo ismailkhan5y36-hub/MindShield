@@ -95,6 +95,7 @@ class ShieldAccessibilityService : AccessibilityService() {
     }
 
     private var lastBlockActionTime = 0L
+    private var lastMovieBoxBackTime = 0L
     private val BLOCK_COOLDOWN_MS = 1500L
 
     private fun triggerSafeViolationAction() {
@@ -217,7 +218,14 @@ class ShieldAccessibilityService : AccessibilityService() {
             val decision = SmartFilterEngine.evaluateUniversalScreenContent(rootNode, packageName)
             if (decision == FilterDecision.DISMISS_BACK) {
                 if (isMovieBoxPackage(packageName)) {
-                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    val now = System.currentTimeMillis()
+                    if (now - lastMovieBoxBackTime > 800L) {
+                        lastMovieBoxBackTime = now
+                        quotaManager.recordDistractionBlock()
+                        // Surgical Redirect: Bounce user out of Midnight adult section back to safe MovieBox feed
+                        performGlobalAction(GLOBAL_ACTION_BACK)
+                    }
+                    return
                 }
                 triggerSafeViolationAction()
                 return

@@ -96,8 +96,8 @@ class PackageUpdateReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle("🛡️ MindShield Updated to v6.0.0")
-            .setContentText("Tap once to re-confirm Accessibility and keep protection active.")
+            .setContentTitle("🛡️ MindShield Updated to v6.2.0")
+            .setContentText("Tap to verify Accessibility and ensure 24/7 active protection.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)

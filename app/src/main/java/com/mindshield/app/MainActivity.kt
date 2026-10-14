@@ -241,10 +241,45 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // --- TAB 1: SHIELD & SCREEN TIME LOGIC ---
-    private fun setupShieldListeners() {
         btnAccessibility.setOnClickListener {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            if (isAccessibilityServiceEnabled()) {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                return@setOnClickListener
+            }
+
+            // Guided setup for Android 13/14 Restricted Settings and ADB Zero-Touch
+            AlertDialog.Builder(this)
+                .setTitle("⚡ Enable MindShield Accessibility")
+                .setMessage(
+                    "Agar Accessibility switch Greyed Out (Restricted Setting) hai:\n\n" +
+                    "1️⃣ 'Open App Info' dabayein\n" +
+                    "2️⃣ Upar 3 dots (⋮) dabayein -> 'Allow restricted settings'\n" +
+                    "3️⃣ Phir 'Accessibility Settings' me ja kar MindShield ON karein!\n\n" +
+                    "💡 Permanent Zero-Touch Mode: ADB ya Shizuku se WRITE_SECURE_SETTINGS grant karein taake updates par kabhi off na ho."
+                )
+                .setPositiveButton("Open Accessibility") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }
+                .setNeutralButton("Open App Info") { _, _ ->
+                    try {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        startActivity(Intent(Settings.ACTION_SETTINGS))
+                    }
+                }
+                .setNegativeButton("Copy ADB Cmd") { _, _ ->
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clip = android.content.ClipData.newPlainText(
+                        "ADB Command",
+                        "adb shell pm grant com.mindshield.app android.permission.WRITE_SECURE_SETTINGS"
+                    )
+                    clipboard.setPrimaryClip(clip)
+                    android.widget.Toast.makeText(this, "📋 ADB command copied to clipboard!", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                .show()
         }
 
         btnOverlay.setOnClickListener {
@@ -581,16 +616,31 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showSecureUpdateDialog() {
+        val hasAdb = SecureUpdateManager.hasWriteSecureSettings(this)
+        val adbStatus = if (hasAdb) "ACTIVE (Zero-Touch Updates Protected ✅)" else "OPTIONAL (Run ADB command to enable)"
         AlertDialog.Builder(this)
             .setTitle("🛡️ Secure Update Shield")
             .setMessage(
                 "• Version: ${SecureUpdateManager.CURRENT_VERSION_NAME} (Build ${SecureUpdateManager.CURRENT_VERSION_CODE})\n" +
                 "• Master Serial Key: ${SecureUpdateManager.MASTER_SERIAL_KEY}\n" +
-                "• Anti-Downgrade Gate: ACTIVE (Enforces Version > 6)\n" +
-                "• Zero-Downtime Auto-Recovery: ACTIVE\n\n" +
-                "Your system is 100% up to date and protected."
+                "• Anti-Downgrade Gate: ACTIVE (Enforces Version >= 13)\n" +
+                "• MovieBox Home Safe-Pass: ACTIVE (100% Open)\n" +
+                "• MovieBox Midnight Filter: ACTIVE (Surgical Redirect)\n" +
+                "• Zero-Downtime Auto-Recovery: ACTIVE\n" +
+                "• Permanent ADB Persistence: $adbStatus\n\n" +
+                "Command to enable Zero-Touch persistence:\n" +
+                "adb shell pm grant com.mindshield.app android.permission.WRITE_SECURE_SETTINGS"
             )
             .setPositiveButton("OK", null)
+            .setNeutralButton("Copy ADB Cmd") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText(
+                    "ADB Command",
+                    "adb shell pm grant com.mindshield.app android.permission.WRITE_SECURE_SETTINGS"
+                )
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(this, "📋 ADB command copied to clipboard!", Toast.LENGTH_SHORT).show()
+            }
             .show()
     }
 
@@ -659,13 +709,18 @@ class MainActivity : AppCompatActivity() {
         if (isServiceOn) {
             viewStatusDot.setBackgroundColor(ContextCompat.getColor(this, R.color.success))
             tvServiceStatus.text = "Focus Shield Active"
-            tvStatusDesc.text = "Reels quota aur 2-hour anti-cheat 100% active hain."
+            val hasAdb = SecureUpdateManager.hasWriteSecureSettings(this)
+            tvStatusDesc.text = if (hasAdb) {
+                "Reels quota & AI Brain active • ADB Zero-Touch Protected 🛡️"
+            } else {
+                "Reels quota & AI Brain active • Protection 100% On."
+            }
             btnAccessibility.text = "✓ Accessibility Service Enabled"
             btnAccessibility.strokeColor = ContextCompat.getColorStateList(this, R.color.success)
         } else {
             viewStatusDot.setBackgroundColor(ContextCompat.getColor(this, R.color.danger))
             tvServiceStatus.text = "Protection Inactive"
-            tvStatusDesc.text = "Neeche button par click karke 'MindShield' service ko on karein."
+            tvStatusDesc.text = "Neeche button par click karke 'MindShield' service ko on karein (Allow Restricted if greyed out)."
             btnAccessibility.text = "1. Turn On Accessibility Service"
         }
 

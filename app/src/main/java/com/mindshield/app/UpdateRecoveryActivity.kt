@@ -1,9 +1,13 @@
 package com.mindshield.app
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButton
 
@@ -13,16 +17,39 @@ class UpdateRecoveryActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_update_recovery)
 
-        findViewById<MaterialButton>(R.id.btnReconfirmAccessibility).setOnClickListener {
-            // Open Accessibility settings directly to allow 1-tap re-activation
+        // Step 1: Open App Info for Restricted Settings
+        findViewById<MaterialButton>(R.id.btnOpenAppInfo)?.setOnClickListener {
+            try {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                Toast.makeText(this, "Could not open App Info automatically.", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Step 2: Open Accessibility Settings
+        findViewById<MaterialButton>(R.id.btnReconfirmAccessibility)?.setOnClickListener {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             startActivity(intent)
-            finish()
         }
 
-        findViewById<MaterialButton>(R.id.btnDismissUpdate).setOnClickListener {
+        // Copy ADB Command for Zero-Touch Mode
+        findViewById<MaterialButton>(R.id.btnCopyAdbCommand)?.setOnClickListener {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText(
+                "ADB Command",
+                "adb shell pm grant com.mindshield.app android.permission.WRITE_SECURE_SETTINGS"
+            )
+            clipboard.setPrimaryClip(clip)
+            Toast.makeText(this, "📋 ADB command copied! Run once on PC or Shizuku.", Toast.LENGTH_LONG).show()
+        }
+
+        findViewById<MaterialButton>(R.id.btnDismissUpdate)?.setOnClickListener {
             val mainIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }

@@ -165,11 +165,23 @@ object SmartFilterEngine {
         return FilterDecision.ALLOW
     }
 
+    fun isMovieBoxPackage(packageName: String): Boolean {
+        val lower = packageName.lowercase()
+        return lower.contains("moviebox") ||
+                lower == "com.transsion.moviebox" ||
+                lower == "com.community.oneroom" ||
+                lower == "com.transsion.magellan" ||
+                lower == "com.playbox.movie" ||
+                lower == "com.mb.android" ||
+                lower == "com.universal.free.movie"
+    }
+
     /**
      * Universal AI Content Brain:
      * Inspects active window content across MovieBox, Streaming Apps, Browsers, and Third-party apps.
-     * Detects adult tabs, explicit media sections (e.g. Midnight 🔞, Porn Top Videos, Ullu Drama, Hentai),
-     * and performs contextual disambiguation.
+     * Guaranteed: MovieBox Home screen (Doraemon, Naruto, Trending Movies, TV Series) is 100% UNINTERRUPTED.
+     * Intercepts ONLY when adult section body is rendered (Porn Top Videos, Anal Sex, Ullu, Hentai)
+     * or actively selected Midnight tab.
      */
     fun evaluateUniversalScreenContent(rootNode: AccessibilityNodeInfo, packageName: String): FilterDecision {
         val allTexts = mutableListOf<String>()
@@ -179,20 +191,86 @@ object SmartFilterEngine {
         // Normalize text: replace 🔞 emoji with "18+"
         val combined = allTexts.joinToString(" ").lowercase().replace("🔞", " 18+ ")
 
-        // 1. Unambiguous Adult Media & Streaming Signatures
+        // --- STEP 0: MovieBox Surgical Isolation ---
+        if (isMovieBoxPackage(packageName)) {
+            // Check for legitimate Home screen markers (Trending Movies, Doraemon, Naruto, Category Tabs)
+            val isHomeScreen = combined.contains("trending movies") ||
+                    combined.contains("trending tv series") ||
+                    combined.contains("doraemon") ||
+                    combined.contains("naruto") ||
+                    (combined.contains("buzzbox") && (combined.contains("fightzone") || combined.contains("cricket") || combined.contains("game") || combined.contains("indian") || combined.contains("bangla") || combined.contains("tv") || combined.contains("shorttv")))
+
+            // Check if actual explicit adult body content is on the screen
+            val hasAdultBodyContent = combined.contains("porn top videos") ||
+                    combined.contains("porn top video") ||
+                    combined.contains("anal sex") ||
+                    combined.contains("join 18+ channel") ||
+                    combined.contains("join 18+ group") ||
+                    (combined.contains("18+ channel") && (combined.contains("join") || combined.contains("telegram"))) ||
+                    (combined.contains("novelhub") && combined.contains("hot")) ||
+                    combined.contains("ullu drama list") ||
+                    combined.contains("ullu originals") ||
+                    combined.contains("my hentai girlfriend") ||
+                    combined.contains("hardcore sex") ||
+                    combined.contains("bhabhi sex") ||
+                    combined.contains("chudai video") ||
+                    combined.contains("desi mms") ||
+                    combined.contains("viral mms") ||
+                    combined.contains("blowjob") ||
+                    combined.contains("creampie") ||
+                    combined.contains("milf porn") ||
+                    combined.contains("onlyfans leak") ||
+                    combined.contains("charmsukh") ||
+                    combined.contains("palang tod") ||
+                    combined.contains("xxx video") ||
+                    combined.contains("xxx movie") ||
+                    combined.contains("sex video") ||
+                    combined.contains("adult video")
+
+            // If user is on legitimate Home screen and NO adult body content is rendered:
+            if (isHomeScreen && !hasAdultBodyContent) {
+                // Check if user is typing an explicit search query in search box
+                val searchTexts = mutableListOf<String>()
+                extractSearchAndInputTexts(rootNode, searchTexts)
+                for (query in searchTexts) {
+                    if (evaluateSearchQueryIntent(query) == FilterDecision.DISMISS_BACK) {
+                        return FilterDecision.DISMISS_BACK
+                    }
+                }
+                // 100% Safe Home Screen Fast-Pass!
+                return FilterDecision.ALLOW
+            }
+
+            // If adult body content is present, or Midnight tab is actively selected/focused:
+            if (hasAdultBodyContent || (isMovieBoxMidnightActive(rootNode) && (combined.contains("18+") || combined.contains("porn") || combined.contains("sex") || combined.contains("novelhub")))) {
+                return FilterDecision.DISMISS_BACK
+            }
+        }
+
+        // 1. Unambiguous Adult Media & Streaming Signatures (Universal for all apps)
         val hasAdultMediaHeader = combined.contains("porn top videos") ||
                 combined.contains("porn top video") ||
-                (combined.contains("midnight") && (combined.contains("18+") || combined.contains("porn") || combined.contains("hentai"))) ||
                 (combined.contains("18+ channel") && (combined.contains("join") || combined.contains("telegram"))) ||
                 (combined.contains("novelhub") && combined.contains("hot")) ||
                 combined.contains("ullu drama list") ||
                 combined.contains("ullu originals") ||
-                combined.contains("anal sex with") ||
+                combined.contains("anal sex") ||
                 combined.contains("my hentai girlfriend") ||
                 combined.contains("hardcore sex") ||
                 combined.contains("bhabhi sex") ||
                 combined.contains("chudai video") ||
-                combined.contains("desi mms viral")
+                combined.contains("desi mms") ||
+                combined.contains("viral mms") ||
+                combined.contains("blowjob") ||
+                combined.contains("creampie") ||
+                combined.contains("milf porn") ||
+                combined.contains("onlyfans leak") ||
+                combined.contains("charmsukh") ||
+                combined.contains("palang tod") ||
+                combined.contains("xxx video") ||
+                combined.contains("xxx movie") ||
+                combined.contains("sex video") ||
+                combined.contains("adult video")
 
         if (hasAdultMediaHeader) {
             return FilterDecision.DISMISS_BACK
@@ -244,7 +322,7 @@ object SmartFilterEngine {
      * Blocks Midnight & NovelHub tabs, and filters search queries using the Semantic Intent Brain.
      */
     fun checkMovieBox(rootNode: AccessibilityNodeInfo): FilterDecision {
-        return evaluateUniversalScreenContent(rootNode, "moviebox")
+        return evaluateUniversalScreenContent(rootNode, "com.community.oneroom")
     }
 
     // --- HELPER UTILITIES ---
@@ -300,19 +378,19 @@ object SmartFilterEngine {
         return pattern.containsMatchIn(text)
     }
 
-    private fun isMovieBoxMidnightActive(node: AccessibilityNodeInfo?): Boolean {
+    fun isMovieBoxMidnightActive(node: AccessibilityNodeInfo?): Boolean {
         if (node == null) return false
 
         val text = node.text?.toString()?.trim()?.lowercase() ?: ""
         val desc = node.contentDescription?.toString()?.trim()?.lowercase() ?: ""
 
-        val isSelected = node.isSelected
-        val isFocused = node.isFocused
+        val isSelfActive = node.isSelected || node.isFocused
+        val isParentActive = node.parent?.isSelected == true || node.parent?.isFocused == true
 
         val matchesMidnight = text.contains("midnight") || desc.contains("midnight") ||
                 text.contains("novelhub") || desc.contains("novelhub")
 
-        if (matchesMidnight && (isSelected || isFocused)) {
+        if (matchesMidnight && (isSelfActive || isParentActive)) {
             return true
         }
 
