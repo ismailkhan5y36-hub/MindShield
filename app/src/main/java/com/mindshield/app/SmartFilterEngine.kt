@@ -166,47 +166,85 @@ object SmartFilterEngine {
     }
 
     /**
-     * MovieBox Guard:
-     * Blocks Midnight & NovelHub tabs, and filters search queries using the Semantic Intent Brain.
+     * Universal AI Content Brain:
+     * Inspects active window content across MovieBox, Streaming Apps, Browsers, and Third-party apps.
+     * Detects adult tabs, explicit media sections (e.g. Midnight 🔞, Porn Top Videos, Ullu Drama, Hentai),
+     * and performs contextual disambiguation.
      */
-    fun checkMovieBox(rootNode: AccessibilityNodeInfo): FilterDecision {
+    fun evaluateUniversalScreenContent(rootNode: AccessibilityNodeInfo, packageName: String): FilterDecision {
         val allTexts = mutableListOf<String>()
         collectAllTexts(rootNode, allTexts)
         if (allTexts.isEmpty()) return FilterDecision.ALLOW
 
-        val combined = allTexts.joinToString(" ").lowercase()
+        // Normalize text: replace 🔞 emoji with "18+"
+        val combined = allTexts.joinToString(" ").lowercase().replace("🔞", " 18+ ")
 
-        // 1. Check Midnight / NovelHub tabs or headers
-        if (combined.contains("midnight (18+)") || combined.contains("porn top videos") ||
-            combined.contains("18+ channel") || isMovieBoxMidnightActive(rootNode)
-        ) {
+        // 1. Unambiguous Adult Media & Streaming Signatures
+        val hasAdultMediaHeader = combined.contains("porn top videos") ||
+                combined.contains("porn top video") ||
+                (combined.contains("midnight") && (combined.contains("18+") || combined.contains("porn") || combined.contains("hentai"))) ||
+                (combined.contains("18+ channel") && (combined.contains("join") || combined.contains("telegram"))) ||
+                (combined.contains("novelhub") && combined.contains("hot")) ||
+                combined.contains("ullu drama list") ||
+                combined.contains("ullu originals") ||
+                combined.contains("anal sex with") ||
+                combined.contains("my hentai girlfriend") ||
+                combined.contains("hardcore sex") ||
+                combined.contains("bhabhi sex") ||
+                combined.contains("chudai video") ||
+                combined.contains("desi mms viral")
+
+        if (hasAdultMediaHeader) {
             return FilterDecision.DISMISS_BACK
         }
 
-        // 2. MovieBox Search Input: Extract and check query intent
+        // 2. Check Unambiguous Hardcore Tokens
+        for (token in unambiguousHardcoreTokens) {
+            if (containsWordToken(combined, token)) {
+                // Check if there is safe educational/demographic context
+                var isSafeContext = false
+                for (safeSignal in safeIntentSignals) {
+                    if (combined.contains(safeSignal)) {
+                        isSafeContext = true
+                        break
+                    }
+                }
+                if (!isSafeContext) {
+                    return FilterDecision.DISMISS_BACK
+                }
+            }
+        }
+
+        // 3. Search Bar / User Input Evaluation
         val searchTexts = mutableListOf<String>()
         extractSearchAndInputTexts(rootNode, searchTexts)
         for (query in searchTexts) {
             val qLower = query.lowercase().trim()
             if (qLower.isBlank()) continue
 
-            // Check explicit signatures
-            for (term in movieBoxExplicitSignatures) {
-                if (containsWordToken(qLower, term)) {
-                    // Allow normal movie searches e.g. "Batman: The Adult Animated Series" if educational/review
-                    if (!qLower.contains("how") && !qLower.contains("review") && !qLower.contains("trailer")) {
-                        return FilterDecision.DISMISS_BACK
-                    }
+            // If query is an address or URL, evaluate with URL parser
+            if (qLower.contains(".") && !qLower.contains(" ")) {
+                val urlDecision = evaluateSingleInput(query)
+                if (urlDecision == FilterDecision.DISMISS_BACK) {
+                    return FilterDecision.DISMISS_BACK
                 }
             }
 
-            // Run through general Semantic Intent Brain
+            // Run through Semantic Intent Brain
             if (evaluateSearchQueryIntent(query) == FilterDecision.DISMISS_BACK) {
                 return FilterDecision.DISMISS_BACK
             }
         }
 
         return FilterDecision.ALLOW
+    }
+
+    /**
+     * MovieBox Guard:
+     * Blocks Midnight & NovelHub tabs, and filters search queries using the Semantic Intent Brain.
+     */
+    fun checkMovieBox(rootNode: AccessibilityNodeInfo): FilterDecision {
+        return evaluateUniversalScreenContent(rootNode, "moviebox")
     }
 
     // --- HELPER UTILITIES ---

@@ -209,28 +209,18 @@ class ShieldAccessibilityService : AccessibilityService() {
             return
         }
 
-        // --- RULE 5: MOVIEBOX & STREAMING GUARD (MIDNIGHT, NOVELHUB & INTENT SEARCH GUARD) ---
-        if (isMovieBoxPackage(packageName)) {
-            val rootNode = rootInActiveWindow
-            if (rootNode != null) {
-                val decision = SmartFilterEngine.checkMovieBox(rootNode)
-                if (decision == FilterDecision.DISMISS_BACK) {
-                    triggerSafeViolationAction()
-                    return
+        // --- RULE 5: UNIVERSAL AI CONTENT BRAIN (ALL STREAMING APPS, MOVIEBOX, BROWSERS, & MEDIA) ---
+        // Analyzes active window content across MovieBox (com.community.oneroom), Browsers, and Third-Party Apps.
+        // Allows innocent content & movies 100% freely; strictly dismisses adult tabs (Midnight 🔞, Porn Top Videos, etc.)
+        val rootNode = rootInActiveWindow
+        if (rootNode != null) {
+            val decision = SmartFilterEngine.evaluateUniversalScreenContent(rootNode, packageName)
+            if (decision == FilterDecision.DISMISS_BACK) {
+                if (isMovieBoxPackage(packageName)) {
+                    performGlobalAction(GLOBAL_ACTION_BACK)
                 }
-            }
-        }
-
-        // --- RULE 6: UNIVERSAL BROWSERS & DOWNLOADERS (SEMANTIC INTENT BRAIN) ---
-        // Evaluates ALL browsers. Allows Incognito freely; filters only explicit content!
-        if (isBrowserOrDownloader(packageName)) {
-            val rootNode = rootInActiveWindow
-            if (rootNode != null) {
-                val decision = SmartFilterEngine.evaluateBrowserContent(rootNode)
-                if (decision == FilterDecision.DISMISS_BACK) {
-                    triggerSafeViolationAction()
-                    return
-                }
+                triggerSafeViolationAction()
+                return
             }
         }
 
@@ -421,7 +411,12 @@ class ShieldAccessibilityService : AccessibilityService() {
 
     private fun isMovieBoxPackage(packageName: String): Boolean {
         return packageName.contains("moviebox", ignoreCase = true) ||
-                packageName == "com.transsion.moviebox"
+                packageName == "com.transsion.moviebox" ||
+                packageName == "com.community.oneroom" ||
+                packageName == "com.transsion.magellan" ||
+                packageName == "com.playbox.movie" ||
+                packageName == "com.mb.android" ||
+                packageName == "com.universal.free.movie"
     }
 
     private fun isPlayStoreRestrictedSearch(node: AccessibilityNodeInfo): Boolean {
