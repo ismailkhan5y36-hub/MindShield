@@ -24,12 +24,14 @@ class PackageUpdateReceiver : BroadcastReceiver() {
         // 1. Record update in SecureUpdateManager
         SecureUpdateManager.getInstance(context).recordSuccessfulUpdate()
 
-        // 2. Re-arm Local DNS Firewall 24/7 automatically in background
+        // 2. Re-arm Local DNS Firewall 24/7 automatically in background (only if VPN permission granted)
         try {
-            val dnsIntent = Intent(context, LocalDnsService::class.java).apply {
-                action = LocalDnsService.ACTION_START
+            if (android.net.VpnService.prepare(context) == null) {
+                val dnsIntent = Intent(context, LocalDnsService::class.java).apply {
+                    action = LocalDnsService.ACTION_START
+                }
+                ContextCompat.startForegroundService(context, dnsIntent)
             }
-            ContextCompat.startForegroundService(context, dnsIntent)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -96,7 +98,7 @@ class PackageUpdateReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle("🛡️ MindShield Updated to v6.2.0")
+            .setContentTitle("🛡️ MindShield Updated to v6.3.0")
             .setContentText("Tap to verify Accessibility and ensure 24/7 active protection.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)

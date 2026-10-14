@@ -193,15 +193,8 @@ object SmartFilterEngine {
 
         // --- STEP 0: MovieBox Surgical Isolation ---
         if (isMovieBoxPackage(packageName)) {
-            // Check for legitimate Home screen markers (Trending Movies, Doraemon, Naruto, Category Tabs)
-            val isHomeScreen = combined.contains("trending movies") ||
-                    combined.contains("trending tv series") ||
-                    combined.contains("doraemon") ||
-                    combined.contains("naruto") ||
-                    (combined.contains("buzzbox") && (combined.contains("fightzone") || combined.contains("cricket") || combined.contains("game") || combined.contains("indian") || combined.contains("bangla") || combined.contains("tv") || combined.contains("shorttv")))
-
-            // Check if actual explicit adult body content is on the screen
-            val hasAdultBodyContent = combined.contains("porn top videos") ||
+            // Check if actual adult section content is rendered on screen
+            val hasAdultContent = combined.contains("porn top videos") ||
                     combined.contains("porn top video") ||
                     combined.contains("anal sex") ||
                     combined.contains("join 18+ channel") ||
@@ -214,6 +207,7 @@ object SmartFilterEngine {
                     combined.contains("hardcore sex") ||
                     combined.contains("bhabhi sex") ||
                     combined.contains("chudai video") ||
+                    combined.contains("chudai") ||
                     combined.contains("desi mms") ||
                     combined.contains("viral mms") ||
                     combined.contains("blowjob") ||
@@ -227,24 +221,22 @@ object SmartFilterEngine {
                     combined.contains("sex video") ||
                     combined.contains("adult video")
 
-            // If user is on legitimate Home screen and NO adult body content is rendered:
-            if (isHomeScreen && !hasAdultBodyContent) {
-                // Check if user is typing an explicit search query in search box
-                val searchTexts = mutableListOf<String>()
-                extractSearchAndInputTexts(rootNode, searchTexts)
-                for (query in searchTexts) {
-                    if (evaluateSearchQueryIntent(query) == FilterDecision.DISMISS_BACK) {
-                        return FilterDecision.DISMISS_BACK
-                    }
-                }
-                // 100% Safe Home Screen Fast-Pass!
-                return FilterDecision.ALLOW
-            }
-
-            // If adult body content is present, or Midnight tab is actively selected/focused:
-            if (hasAdultBodyContent || (isMovieBoxMidnightActive(rootNode) && (combined.contains("18+") || combined.contains("porn") || combined.contains("sex") || combined.contains("novelhub")))) {
+            if (hasAdultContent) {
                 return FilterDecision.DISMISS_BACK
             }
+
+            // Check if user is typing an explicit query in MovieBox search box
+            val searchTexts = mutableListOf<String>()
+            extractSearchAndInputTexts(rootNode, searchTexts)
+            for (query in searchTexts) {
+                if (evaluateSearchQueryIntent(query) == FilterDecision.DISMISS_BACK) {
+                    return FilterDecision.DISMISS_BACK
+                }
+            }
+
+            // For ALL other MovieBox screens (Home, Doraemon, Naruto, BuzzBox, Trending Movies, TV, ShortTV, etc.):
+            // 100% UNINTERRUPTED ALLOW!
+            return FilterDecision.ALLOW
         }
 
         // 1. Unambiguous Adult Media & Streaming Signatures (Universal for all apps)
