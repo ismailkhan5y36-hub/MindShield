@@ -240,22 +240,18 @@ class ShieldAccessibilityService : AccessibilityService() {
         }
 
         // --- RULE 5: UNIVERSAL AI CONTENT BRAIN (ALL STREAMING APPS, MOVIEBOX, BROWSERS, & MEDIA) ---
-        // Analyzes active window content across MovieBox (com.community.oneroom), Browsers, and Third-Party Apps.
-        // Allows innocent content & movies 100% freely; strictly dismisses adult tabs (Midnight 🔞, Porn Top Videos, etc.)
         val rootNode = rootInActiveWindow
+        val activePkg = rootNode?.packageName?.toString() ?: packageName
+
+        // MOVIEBOX SURGICAL PROTECTION: Never close MovieBox! Block ONLY Midnight 🔞 tab!
+        if (isMovieBoxPackage(activePkg) || isMovieBoxPackage(packageName)) {
+            handleMovieBoxSurgicalProtection(event, rootNode)
+            return
+        }
+
         if (rootNode != null) {
             val decision = SmartFilterEngine.evaluateUniversalScreenContent(rootNode, packageName)
             if (decision == FilterDecision.DISMISS_BACK) {
-                if (isMovieBoxPackage(packageName)) {
-                    val now = System.currentTimeMillis()
-                    if (now - lastMovieBoxBackTime > 800L) {
-                        lastMovieBoxBackTime = now
-                        quotaManager.recordDistractionBlock()
-                        // Surgical Redirect: Bounce user out of Midnight adult section back to safe MovieBox feed
-                        performGlobalAction(GLOBAL_ACTION_BACK)
-                    }
-                    return
-                }
                 triggerSafeViolationAction()
                 return
             }
@@ -454,6 +450,97 @@ class ShieldAccessibilityService : AccessibilityService() {
                 packageName == "com.playbox.movie" ||
                 packageName == "com.mb.android" ||
                 packageName == "com.universal.free.movie"
+    }
+
+    private var lastMovieBoxTabSwitchTime = 0L
+
+    private fun handleMovieBoxSurgicalProtection(event: AccessibilityEvent, rootNode: AccessibilityNodeInfo?) {
+        val now = System.currentTimeMillis()
+        if (now - lastMovieBoxTabSwitchTime < 350L) return
+
+        // 1. Surgical Tab Click Intercept: Intercept user click on Midnight 🔞 tab
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
+            val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
+            if (evText.contains("midnight") || evDesc.contains("midnight") ||
+                (evText.contains("18+") && !evText.contains("join")) ||
+                (evDesc.contains("18+") && !evDesc.contains("join"))) {
+                lastMovieBoxTabSwitchTime = now
+                redirectMovieBoxToSafeTab(rootNode)
+                return
+            }
+        }
+
+        if (rootNode == null) return
+
+        // 2. Active Tab Selection Detection: Check if Midnight tab is selected
+        if (isMidnightTabSelected(rootNode)) {
+            lastMovieBoxTabSwitchTime = now
+            redirectMovieBoxToSafeTab(rootNode)
+            return
+        }
+
+        // 3. Explicit Adult Feed Inspection (Telegram adult channel links, porn videos, etc.)
+        val decision = SmartFilterEngine.evaluateUniversalScreenContent(rootNode, "com.community.oneroom")
+        if (decision == FilterDecision.DISMISS_BACK) {
+            lastMovieBoxTabSwitchTime = now
+            // Switch away to safe tab, or press back ONLY if in a sub-activity (e.g. video player/detail)
+            val isMainActivity = rootNode.className?.toString()?.contains("MainActivity") == true ||
+                    hasNodeWithText(rootNode, "BuzzBox") ||
+                    hasNodeWithText(rootNode, "Indian") ||
+                    hasNodeWithText(rootNode, "TV")
+            if (isMainActivity) {
+                redirectMovieBoxToSafeTab(rootNode)
+            } else {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+            }
+        }
+    }
+
+    private fun isMidnightTabSelected(node: AccessibilityNodeInfo?): Boolean {
+        if (node == null) return false
+        val text = node.text?.toString()?.lowercase() ?: ""
+        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+
+        if (text.contains("midnight") || desc.contains("midnight")) {
+            if (node.isSelected || node.parent?.isSelected == true || node.parent?.parent?.isSelected == true) {
+                return true
+            }
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null && isMidnightTabSelected(child)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun redirectMovieBoxToSafeTab(rootNode: AccessibilityNodeInfo?) {
+        if (rootNode == null) return
+        val safeTabs = listOf("BuzzBox", "Indian", "TV", "FightZone", "Game", "Cricket", "Bangla")
+        for (tabName in safeTabs) {
+            val nodes = rootNode.findAccessibilityNodeInfosByText(tabName)
+            if (!nodes.isNullOrEmpty()) {
+                for (n in nodes) {
+                    if (n.isClickable) {
+                        n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        return
+                    }
+                    val parent = n.parent
+                    if (parent != null && parent.isClickable) {
+                        parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        return
+                    }
+                    val grandParent = parent?.parent
+                    if (grandParent != null && grandParent.isClickable) {
+                        grandParent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        return
+                    }
+                }
+            }
+        }
     }
 
     private fun isPlayStoreRestrictedSearch(node: AccessibilityNodeInfo): Boolean {
