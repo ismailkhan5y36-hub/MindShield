@@ -411,7 +411,6 @@ class ShieldAccessibilityService : AccessibilityService() {
         val rootNode = rootInActiveWindow ?: return
         val now = System.currentTimeMillis()
 
-        val isInClips = className.contains("ClipsViewerActivity", ignoreCase = true) ||
         // Only redirect when actively in the full-screen ClipsViewerActivity
         val isInClips = className.contains("ClipsViewerActivity", ignoreCase = true)
         val isReelsClick = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED &&
