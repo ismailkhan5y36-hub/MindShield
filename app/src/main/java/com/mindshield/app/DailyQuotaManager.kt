@@ -63,4 +63,15 @@ class DailyQuotaManager(context: Context) {
     fun getDistractionBlockCount(): Int {
         return prefs.getInt(KEY_DISTRACTIONS_BLOCKED, 0)
     }
+
+    fun getEstimatedMinutesSaved(): Int {
+        return getDistractionBlockCount() * 15
+    }
+
+    fun getFormattedTimeSaved(): String {
+        val totalMins = getEstimatedMinutesSaved()
+        val hours = totalMins / 60
+        val mins = totalMins % 60
+        return if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+    }
 }

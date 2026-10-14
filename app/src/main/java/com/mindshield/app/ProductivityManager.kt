@@ -84,6 +84,17 @@ class ProductivityManager(context: Context) {
         return prefs.getInt(KEY_STREAK, 1)
     }
 
+    fun getStreakMilestone(): String {
+        val days = getStreakDays()
+        return when {
+            days >= 90 -> "💎 Diamond Master"
+            days >= 30 -> "🥇 Gold Champion"
+            days >= 7 -> "🥈 Silver Knight"
+            days >= 3 -> "🥉 Bronze Shield"
+            else -> "🌱 Focus Starter"
+        }
+    }
+
     private fun checkAndAdvanceStreak() {
         val today = getTodayDate()
         val lastDate = prefs.getString(KEY_LAST_STREAK_DATE, "") ?: ""

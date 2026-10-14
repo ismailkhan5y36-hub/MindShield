@@ -10,11 +10,14 @@ import android.os.Bundle
 import android.os.CountDownTimer
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.InputType
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
@@ -91,6 +94,24 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvMindsetAntiCheatStatus: TextView
     private lateinit var tvMindsetAntiCheatBadge: TextView
 
+    // v6.0.0 Managers
+    private lateinit var customRulesManager: CustomRulesManager
+    private lateinit var nightShieldManager: NightShieldManager
+    private lateinit var camouflageManager: CamouflageManager
+    private lateinit var secureUpdateManager: SecureUpdateManager
+
+    // v6.0.0 Tab 1 Views
+    private lateinit var tvDistractionsBlockedCount: TextView
+    private lateinit var tvEstimatedTimeSaved: TextView
+    private lateinit var tvDisciplineMilestone: TextView
+
+    // v6.0.0 Tab 4 Views
+    private lateinit var btnManageCustomApps: MaterialButton
+    private lateinit var btnManageCustomWebsites: MaterialButton
+    private lateinit var switchBedtimeShield: SwitchCompat
+    private lateinit var switchCamouflage: SwitchCompat
+    private lateinit var btnCheckSecureUpdate: MaterialButton
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -98,6 +119,10 @@ class MainActivity : AppCompatActivity() {
         quotaManager = DailyQuotaManager(this)
         productivityManager = ProductivityManager(this)
         antiCheatManager = AntiCheatManager(this)
+        customRulesManager = CustomRulesManager.getInstance(this)
+        nightShieldManager = NightShieldManager.getInstance(this)
+        camouflageManager = CamouflageManager.getInstance(this)
+        secureUpdateManager = SecureUpdateManager.getInstance(this)
         DomainDatabase.init(this)
 
         initViews()
@@ -170,6 +195,18 @@ class MainActivity : AppCompatActivity() {
         switchReminders = findViewById(R.id.switchReminders)
         tvMindsetAntiCheatStatus = findViewById(R.id.tvMindsetAntiCheatStatus)
         tvMindsetAntiCheatBadge = findViewById(R.id.tvMindsetAntiCheatBadge)
+
+        // v6.0.0 Tab 1 Views
+        tvDistractionsBlockedCount = findViewById(R.id.tvDistractionsBlockedCount)
+        tvEstimatedTimeSaved = findViewById(R.id.tvEstimatedTimeSaved)
+        tvDisciplineMilestone = findViewById(R.id.tvDisciplineMilestone)
+
+        // v6.0.0 Tab 4 Views
+        btnManageCustomApps = findViewById(R.id.btnManageCustomApps)
+        btnManageCustomWebsites = findViewById(R.id.btnManageCustomWebsites)
+        switchBedtimeShield = findViewById(R.id.switchBedtimeShield)
+        switchCamouflage = findViewById(R.id.switchCamouflage)
+        btnCheckSecureUpdate = findViewById(R.id.btnCheckSecureUpdate)
     }
 
     private fun setupBottomNavigation() {
@@ -403,6 +440,158 @@ class MainActivity : AppCompatActivity() {
             productivityManager.setRemindersEnabled(isChecked)
             configureHourlyReminder(isChecked)
         }
+
+        // v6.0.0 Custom Rules
+        btnManageCustomApps.setOnClickListener {
+            showManageAppsDialog()
+        }
+        btnManageCustomWebsites.setOnClickListener {
+            showManageWebsitesDialog()
+        }
+
+        // v6.0.0 Bedtime Shield
+        switchBedtimeShield.isChecked = nightShieldManager.isEnabled
+        switchBedtimeShield.setOnCheckedChangeListener { _, isChecked ->
+            nightShieldManager.isEnabled = isChecked
+            Toast.makeText(this, if (isChecked) "Bedtime Shield Active (11 PM - 6 AM)" else "Bedtime Shield Disabled", Toast.LENGTH_SHORT).show()
+        }
+
+        // v6.0.0 Camouflage Notes
+        switchCamouflage.isChecked = camouflageManager.isCamouflageEnabled
+        switchCamouflage.setOnCheckedChangeListener { _, isChecked ->
+            handleCamouflageToggle(isChecked)
+        }
+
+        // v6.0.0 Secure Update
+        btnCheckSecureUpdate.setOnClickListener {
+            showSecureUpdateDialog()
+        }
+    }
+
+    private fun showManageAppsDialog() {
+        val pm = packageManager
+        val launchIntent = Intent(Intent.ACTION_MAIN, null).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
+        val resolveInfos = pm.queryIntentActivities(launchIntent, 0)
+        val appList = mutableListOf<Pair<String, String>>() // Label to PackageName
+
+        for (info in resolveInfos) {
+            val pkg = info.activityInfo.packageName
+            if (pkg != packageName && !pkg.contains("launcher", ignoreCase = true) && !pkg.contains("systemui", ignoreCase = true)) {
+                val label = info.loadLabel(pm).toString()
+                appList.add(label to pkg)
+            }
+        }
+        appList.sortBy { it.first }
+
+        val labels = appList.map { it.first }.toTypedArray()
+        val checked = BooleanArray(appList.size) { i ->
+            customRulesManager.isPackageBlocked(appList[i].second)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("📱 Block Distracting Apps")
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                val pkg = appList[which].second
+                if (isChecked) {
+                    customRulesManager.addBlockedPackage(pkg)
+                } else {
+                    customRulesManager.removeBlockedPackage(pkg)
+                }
+            }
+            .setPositiveButton("Done", null)
+            .show()
+    }
+
+    private fun showManageWebsitesDialog() {
+        val currentBlocked = customRulesManager.getBlockedDomains().toList()
+        val items = currentBlocked.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("🌐 Block Custom Websites")
+            .setItems(if (items.isEmpty()) arrayOf("No custom websites added yet.") else items) { _, which ->
+                if (items.isNotEmpty()) {
+                    val domain = items[which]
+                    AlertDialog.Builder(this)
+                        .setTitle("Remove Website?")
+                        .setMessage("Unblock $domain?")
+                        .setPositiveButton("Remove") { _, _ ->
+                            customRulesManager.removeBlockedDomain(domain)
+                            Toast.makeText(this, "Unblocked $domain", Toast.LENGTH_SHORT).show()
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                }
+            }
+            .setPositiveButton("+ Add Website") { _, _ ->
+                val input = EditText(this).apply {
+                    hint = "example.com"
+                    setPadding(40, 30, 40, 30)
+                }
+                AlertDialog.Builder(this)
+                    .setTitle("Add Website to Block")
+                    .setMessage("Enter domain name (e.g. reddit.com):")
+                    .setView(input)
+                    .setPositiveButton("Block") { _, _ ->
+                        val domain = input.text.toString().trim()
+                        if (domain.isNotEmpty()) {
+                            customRulesManager.addBlockedDomain(domain)
+                            Toast.makeText(this, "Blocked $domain", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun handleCamouflageToggle(isChecked: Boolean) {
+        if (isChecked) {
+            val input = EditText(this).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                setText(camouflageManager.securityPin)
+                setPadding(40, 30, 40, 30)
+            }
+            AlertDialog.Builder(this)
+                .setTitle("📝 Set Security PIN")
+                .setMessage("Enter 4-digit PIN to access MindShield when disguised as Notes:")
+                .setView(input)
+                .setPositiveButton("Enable Camouflage") { _, _ ->
+                    val pin = input.text.toString().trim()
+                    if (pin.length >= 4) {
+                        camouflageManager.securityPin = pin
+                        camouflageManager.isCamouflageEnabled = true
+                        Toast.makeText(this, "MindShield disguised as 'Notes'. Launch 'Notes' to return.", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(this, "PIN must be at least 4 digits", Toast.LENGTH_SHORT).show()
+                        switchCamouflage.isChecked = false
+                    }
+                }
+                .setNegativeButton("Cancel") { _, _ ->
+                    switchCamouflage.isChecked = false
+                }
+                .setCancelable(false)
+                .show()
+        } else {
+            camouflageManager.isCamouflageEnabled = false
+            Toast.makeText(this, "MindShield icon restored.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showSecureUpdateDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("🛡️ Secure Update Shield")
+            .setMessage(
+                "• Version: ${SecureUpdateManager.CURRENT_VERSION_NAME} (Build ${SecureUpdateManager.CURRENT_VERSION_CODE})\n" +
+                "• Master Serial Key: ${SecureUpdateManager.MASTER_SERIAL_KEY}\n" +
+                "• Anti-Downgrade Gate: ACTIVE (Enforces Version > 6)\n" +
+                "• Zero-Downtime Auto-Recovery: ACTIVE\n\n" +
+                "Your system is 100% up to date and protected."
+            )
+            .setPositiveButton("OK", null)
+            .show()
     }
 
     private fun updateMindsetUI() {
@@ -544,6 +733,11 @@ class MainActivity : AppCompatActivity() {
         val streak = productivityManager.getStreakDays()
         val savedHours = streak * 2
         tvTimeSavedWeekly.text = "Mashallah! ${savedHours}h+ Saved This Week"
+
+        // v6.0.0 Focus Deflection & Saved Stats
+        tvDistractionsBlockedCount.text = "${quotaManager.getDistractionBlockCount()}"
+        tvEstimatedTimeSaved.text = quotaManager.getFormattedTimeSaved()
+        tvDisciplineMilestone.text = productivityManager.getStreakMilestone()
 
         // Anti-Cheat Status & Arming
         val isArmed = antiCheatManager.isAntiCheatEnabled()

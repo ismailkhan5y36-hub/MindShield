@@ -88,9 +88,9 @@ object DnsPacketParser {
     }
 
     /**
-     * Builds a synthesized DNS response returning 0.0.0.0 (Blocked)
+     * Builds a synthesized DNS response returning a specific resolved IP address (e.g. SafeSearch VIPs).
      */
-    fun buildBlockedResponse(query: DnsQuery, originalPacket: ByteArray): ByteArray {
+    fun buildResolvedResponse(query: DnsQuery, originalPacket: ByteArray, resolvedIp: ByteArray): ByteArray {
         val qOffset = query.dnsPayloadOffset
         val qLength = query.dnsPayloadLength
 
@@ -106,7 +106,7 @@ object DnsPacketParser {
 
         val questionSectionLength = qEnd - (qOffset + 12)
 
-        // DNS Answer for 0.0.0.0:
+        // DNS Answer:
         // Name pointer (2) + Type A (2) + Class IN (2) + TTL (4) + RDLENGTH (2) + RDATA (4) = 16 bytes
         val dnsResponseLength = 12 + questionSectionLength + 16
         val udpLength = 8 + dnsResponseLength
@@ -151,16 +151,24 @@ object DnsPacketParser {
         System.arraycopy(originalPacket, qOffset + 12, resp, 20 + 8 + 12, questionSectionLength)
         buf.position(20 + 8 + 12 + questionSectionLength)
 
-        // 5. Answer Section (Type A, 0.0.0.0)
+        // 5. Answer Section (Type A)
         buf.putShort(0xC00C.toShort()) // Pointer to Question QNAME (offset 12 in DNS header)
         buf.putShort(1.toShort()) // Type: A
         buf.putShort(1.toShort()) // Class: IN
         buf.putInt(300) // TTL: 300 seconds
         buf.putShort(4.toShort()) // Data length: 4 bytes
-        buf.put(byteArrayOf(0, 0, 0, 0)) // IP: 0.0.0.0
+        buf.put(resolvedIp) // IP address
 
         return resp
     }
+
+    /**
+     * Builds a synthesized DNS response returning 0.0.0.0 (Blocked)
+     */
+    fun buildBlockedResponse(query: DnsQuery, originalPacket: ByteArray): ByteArray {
+        return buildResolvedResponse(query, originalPacket, byteArrayOf(0, 0, 0, 0))
+    }
+
 
     private fun computeIpChecksum(buf: ByteArray, offset: Int, length: Int): Int {
         var sum = 0

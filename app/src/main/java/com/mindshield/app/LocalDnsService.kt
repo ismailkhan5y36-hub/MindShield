@@ -121,26 +121,53 @@ class LocalDnsService : VpnService() {
 
     private fun handlePacket(packet: ByteArray, length: Int, outStream: FileOutputStream) {
         val query = DnsPacketParser.parseDnsQuery(packet, length) ?: return
+        val domain = query.domain
+        val customRules = CustomRulesManager.getInstance(this)
 
-        // 1. Check if domain is in the 950,000+ Adult Domain Database
-        if (DomainDatabase.isDomainBlocked(query.domain)) {
-            // Instant Local Block -> Synthesize 0.0.0.0 response packet!
-            val blockedPacket = DnsPacketParser.buildBlockedResponse(query, packet)
-            synchronized(outStream) {
-                try {
-                    outStream.write(blockedPacket)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+        // 0. Whitelist Check: If domain is explicitly whitelisted by user, forward directly!
+        if (customRules.isDomainWhitelisted(domain)) {
+            workerExecutor.execute {
+                forwardCleanQuery(query, packet, outStream)
             }
             return
         }
 
-        // 2. Clean Domain -> Forward to Upstream Safe DNS (CleanBrowsing Family Filter)
+        // 1. Custom Blacklist Check: If user manually blocked this domain, block instantly (0.0.0.0)
+        if (customRules.isDomainBlocked(domain)) {
+            sendSynthesizedDnsResponse(DnsPacketParser.buildBlockedResponse(query, packet), outStream)
+            return
+        }
+
+        // 2. 950,000+ Adult Domain Database Check: Block instantly (0.0.0.0)
+        if (DomainDatabase.isDomainBlocked(domain)) {
+            sendSynthesizedDnsResponse(DnsPacketParser.buildBlockedResponse(query, packet), outStream)
+            return
+        }
+
+        // 3. Forced SafeSearch Check: Google, Bing, DuckDuckGo, YouTube Restricted Mode VIPs
+        val safeSearchIp = SafeSearchEngine.getSafeSearchIpForDomain(domain)
+        if (safeSearchIp != null) {
+            val safeSearchPacket = DnsPacketParser.buildResolvedResponse(query, packet, safeSearchIp)
+            sendSynthesizedDnsResponse(safeSearchPacket, outStream)
+            return
+        }
+
+        // 4. Clean Query -> Forward to Upstream CleanBrowsing Family Safe DNS (185.228.168.168)
         workerExecutor.execute {
             forwardCleanQuery(query, packet, outStream)
         }
     }
+
+    private fun sendSynthesizedDnsResponse(responsePacket: ByteArray, outStream: FileOutputStream) {
+        synchronized(outStream) {
+            try {
+                outStream.write(responsePacket)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
 
     private fun forwardCleanQuery(query: DnsQuery, originalPacket: ByteArray, outStream: FileOutputStream) {
         var socket: DatagramSocket? = null

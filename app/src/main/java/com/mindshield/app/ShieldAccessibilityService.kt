@@ -11,6 +11,8 @@ class ShieldAccessibilityService : AccessibilityService() {
 
     private lateinit var quotaManager: DailyQuotaManager
     private lateinit var antiCheatManager: AntiCheatManager
+    private lateinit var customRulesManager: CustomRulesManager
+    private lateinit var nightShieldManager: NightShieldManager
     private val handler = Handler(Looper.getMainLooper())
     private var isCurrentlyInReels = false
 
@@ -88,6 +90,8 @@ class ShieldAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         quotaManager = DailyQuotaManager(this)
         antiCheatManager = AntiCheatManager(this)
+        customRulesManager = CustomRulesManager.getInstance(this)
+        nightShieldManager = NightShieldManager.getInstance(this)
     }
 
     private var lastBlockActionTime = 0L
@@ -114,6 +118,18 @@ class ShieldAccessibilityService : AccessibilityService() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         startActivity(frictionIntent)
+    }
+
+    private fun triggerNightRestLock() {
+        val now = System.currentTimeMillis()
+        if (now - lastBlockActionTime < BLOCK_COOLDOWN_MS) return
+        lastBlockActionTime = now
+
+        performGlobalAction(GLOBAL_ACTION_HOME)
+        val nightIntent = Intent(this, NightRestActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        startActivity(nightIntent)
     }
 
     private fun triggerBlock(reason: String) {
@@ -155,6 +171,18 @@ class ShieldAccessibilityService : AccessibilityService() {
                 triggerAntiCheatDelay()
                 return
             }
+        }
+
+        // --- RULE 1.5: CUSTOM BLOCKED APPS ---
+        if (customRulesManager.isPackageBlocked(packageName)) {
+            triggerBlock(BlockActivity.REASON_DISTRACTION)
+            return
+        }
+
+        // --- RULE 1.6: BEDTIME / NIGHT SHIELD LOCKDOWN ---
+        if (nightShieldManager.isBedtimeActive() && isBrowserOrDownloader(packageName)) {
+            triggerNightRestLock()
+            return
         }
 
         // --- RULE 2: DEDICATED SHORT VIDEO APPS (100% HARD BLOCK) ---

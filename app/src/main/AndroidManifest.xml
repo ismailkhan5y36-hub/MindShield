@@ -9,6 +9,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
 
     <application
         android:allowBackup="true"
@@ -22,12 +23,59 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.MindShield">
+            android:theme="@style/Theme.MindShield" />
+
+        <!-- Default Launcher Alias (MindShield) -->
+        <activity-alias
+            android:name=".MainActivityAlias"
+            android:targetActivity=".MainActivity"
+            android:label="@string/app_name"
+            android:icon="@drawable/ic_launcher"
+            android:roundIcon="@drawable/ic_launcher"
+            android:enabled="true"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <!-- Camouflage Notes Launcher Alias -->
+        <activity-alias
+            android:name=".NotesAlias"
+            android:targetActivity=".NotesDisguiseActivity"
+            android:label="Notes"
+            android:icon="@drawable/ic_launcher"
+            android:roundIcon="@drawable/ic_launcher"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Notes Disguise Activity (Scratchpad + Secret PIN Unlock) -->
+        <activity
+            android:name=".NotesDisguiseActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MindShield" />
+
+        <!-- Bedtime Night Rest Activity -->
+        <activity
+            android:name=".NightRestActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.MindShield.Fullscreen" />
+
+        <!-- Post-Update Accessibility 1-Tap Recovery Activity -->
+        <activity
+            android:name=".UpdateRecoveryActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.MindShield.Fullscreen" />
 
         <!-- Fullscreen Shield Block Screen -->
         <activity
@@ -98,6 +146,15 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Zero-Downtime Package Update Self-Healing Receiver -->
+        <receiver
+            android:name=".PackageUpdateReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
