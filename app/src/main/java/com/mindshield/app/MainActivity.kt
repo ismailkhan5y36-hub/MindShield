@@ -321,12 +321,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnDnsGuard.setOnClickListener {
-            val vpnIntent = android.net.VpnService.prepare(this)
-            if (vpnIntent != null) {
-                startActivityForResult(vpnIntent, VPN_REQUEST_CODE)
-            } else {
-                startDnsFirewall()
-            }
+            startDnsFirewall()
         }
 
         btnArmAntiCheat.setOnClickListener {

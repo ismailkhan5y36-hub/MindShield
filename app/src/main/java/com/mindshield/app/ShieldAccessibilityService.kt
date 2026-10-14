@@ -178,21 +178,13 @@ class ShieldAccessibilityService : AccessibilityService() {
                 packageName.contains("launcher", ignoreCase = true)
 
         if (isLauncher) {
-            val rootNode = rootInActiveWindow
-
-            // Universal Self-Defense: MindShield or Notes can NEVER be added to Freezer or disabled
-            if (isFreezerTargetingMindShield(rootNode, event)) {
-                performGlobalAction(GLOBAL_ACTION_HOME)
-                return
-            }
-
             // If anti-cheat is NOT active or maintenance window is open: launcher is safe to pass immediately
             if (!antiCheatManager.isAntiCheatEnabled() || antiCheatManager.isMaintenanceWindowOpen()) {
                 return
             }
 
-            // Anti-cheat IS active: Check if user is clicking or interacting with Freezer inside launcher
-            if (isFreezerActive(rootNode, event)) {
+            // Anti-cheat IS active: Check if user is clicking or opening Freezer
+            if (isFreezerInteraction(event)) {
                 antiCheatManager.triggerCoolingOffIfIdle()
                 triggerAntiCheatDelay()
                 return
@@ -256,11 +248,14 @@ class ShieldAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (rootNode != null) {
-            val decision = SmartFilterEngine.evaluateUniversalScreenContent(rootNode, packageName)
-            if (decision == FilterDecision.DISMISS_BACK) {
-                triggerSafeViolationAction()
-                return
+        // Only evaluate browsers, downloaders, and search engines — never innocent utility or daily apps!
+        if (isBrowserOrDownloader(packageName) || packageName == "com.google.android.googlequicksearchbox") {
+            if (rootNode != null) {
+                val decision = SmartFilterEngine.evaluateUniversalScreenContent(rootNode, packageName)
+                if (decision == FilterDecision.DISMISS_BACK) {
+                    triggerSafeViolationAction()
+                    return
+                }
             }
         }
 
@@ -417,13 +412,16 @@ class ShieldAccessibilityService : AccessibilityService() {
         val now = System.currentTimeMillis()
 
         val isInClips = className.contains("ClipsViewerActivity", ignoreCase = true) ||
-                (hasNodeWithContentDescription(rootNode, "Reels") && hasNodeWithContentDescription(rootNode, "Audio"))
+        // Only redirect when actively in the full-screen ClipsViewerActivity
+        val isInClips = className.contains("ClipsViewerActivity", ignoreCase = true)
+        val isReelsClick = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED &&
+                event.contentDescription?.toString()?.equals("Reels", ignoreCase = true) == true
 
-        if (isInClips || (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED &&
-            event.contentDescription?.toString()?.contains("Reels", ignoreCase = true) == true)) {
-            if (now - lastInstaRedirectTime > 800L) {
+        if (isInClips || isReelsClick) {
+            if (now - lastInstaRedirectTime > 1200L) {
                 lastInstaRedirectTime = now
-                if (!findAndClickHomeTab(rootNode)) {
+                val rootNode = rootInActiveWindow
+                if (rootNode == null || !findAndClickHomeTab(rootNode)) {
                     performGlobalAction(GLOBAL_ACTION_BACK)
                 }
             }
@@ -434,15 +432,18 @@ class ShieldAccessibilityService : AccessibilityService() {
 
     private fun handleFacebookReelsRedirect(event: AccessibilityEvent) {
         val className = event.className?.toString() ?: ""
-        val rootNode = rootInActiveWindow ?: return
         val now = System.currentTimeMillis()
 
-        val isInReels = className.contains("Reel", ignoreCase = true) ||
-                hasNodeWithText(rootNode, "Reels and short videos") ||
-                hasNodeWithContentDescription(rootNode, "Reels")
+        // Only redirect when actively in the dedicated full-screen Reels viewer
+        val isInReelsViewer = className.contains("ReelsViewerActivity", ignoreCase = true) ||
+                className.contains("FbShortsViewerActivity", ignoreCase = true) ||
+                className.contains("FbShortsPlayerActivity", ignoreCase = true)
 
-        if (isInReels) {
-            if (now - lastFbRedirectTime > 800L) {
+        val isReelsClick = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED &&
+                event.contentDescription?.toString()?.equals("Reels", ignoreCase = true) == true
+
+        if (isInReelsViewer || isReelsClick) {
+            if (now - lastFbRedirectTime > 1200L) {
                 lastFbRedirectTime = now
                 performGlobalAction(GLOBAL_ACTION_BACK)
             }
@@ -577,72 +578,25 @@ class ShieldAccessibilityService : AccessibilityService() {
         return false
     }
 
-    private fun isFreezerTargetingMindShield(rootNode: AccessibilityNodeInfo?, event: AccessibilityEvent): Boolean {
-        val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
-        val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
-        val isTargetingApp = evText.contains("mindshield") || evText.contains("notes") ||
-                evDesc.contains("mindshield") || evDesc.contains("notes")
-
-        if (rootNode == null) {
-            return isTargetingApp && (evText.contains("freeze") || evDesc.contains("freeze"))
-        }
-
-        val allTexts = mutableListOf<String>()
-        collectAllNodeTexts(rootNode, allTexts)
-        val content = allTexts.joinToString(" ").lowercase()
-
-        val hasTargetApp = content.contains("mindshield") || content.contains("notes")
-        val hasFreezeOrDisable = content.contains("freeze") || content.contains("freezer") ||
-                content.contains("frozen") || content.contains("add to freezer") ||
-                content.contains("auto freeze") || content.contains("freeze app") ||
-                content.contains("unfreeze")
-
-        return hasTargetApp && hasFreezeOrDisable
-    }
-
-    private fun isFreezerActive(rootNode: AccessibilityNodeInfo?, event: AccessibilityEvent): Boolean {
-        // 1. Check Event metadata
-        val evClass = event.className?.toString()?.lowercase() ?: ""
-        if (evClass.contains("freeze") || evClass.contains("freezer") || evClass.contains("himgr")) {
-            return true
-        }
-
-        val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
-        val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
-        if (evText.contains("freezer") || evText.contains("freeze") ||
-            evDesc.contains("freezer") || evDesc.contains("freeze")) {
-            return true
-        }
-
-        // 2. Check window content
-        if (rootNode == null) return false
-        val allTexts = mutableListOf<String>()
-        collectAllNodeTexts(rootNode, allTexts)
-        val combined = allTexts.joinToString(" ").lowercase()
-
-        if (combined.contains("freezer") || combined.contains("freeze apps") ||
-            combined.contains("frozen apps") || combined.contains("add to freezer") ||
-            combined.contains("freeze app") || combined.contains("frozen") ||
-            combined.contains("auto freeze") || combined.contains("freezer settings")) {
-            return true
-        }
-
-        // 3. Check View IDs
-        return hasNodeWithFreezerId(rootNode)
-    }
-
-    private fun hasNodeWithFreezerId(node: AccessibilityNodeInfo?): Boolean {
-        if (node == null) return false
-        val viewId = node.viewIdResourceName?.lowercase() ?: ""
-        if (viewId.contains("freeze") || viewId.contains("freezer") || viewId.contains("himgr")) {
-            return true
-        }
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            if (child != null && hasNodeWithFreezerId(child)) {
+    private fun isFreezerInteraction(event: AccessibilityEvent): Boolean {
+        // 1. Detect direct click on Freezer icon or folder
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            val evText = event.text?.joinToString(" ")?.trim()?.lowercase() ?: ""
+            val evDesc = event.contentDescription?.toString()?.trim()?.lowercase() ?: ""
+            if (evText == "freezer" || evDesc == "freezer" || evText == "freeze apps" || evDesc == "freeze apps") {
                 return true
             }
         }
+
+        // 2. Detect Freezer activity/dialog class
+        val className = event.className?.toString() ?: ""
+        if (className.contains("FreezeActivity", ignoreCase = true) ||
+            className.contains("FreezerActivity", ignoreCase = true) ||
+            className.contains("FreezeList", ignoreCase = true) ||
+            className.contains("FreezePermissionActivity", ignoreCase = true)) {
+            return true
+        }
+
         return false
     }
 

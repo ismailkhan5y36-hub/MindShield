@@ -33,15 +33,13 @@ class BootReceiver : BroadcastReceiver() {
             val isHealed = AccessibilityAutoHealer.healAccessibility(context)
             Log.i(TAG, "Accessibility auto-heal on boot result: $isHealed")
 
-            // 2. Re-arm Local DNS Firewall 24/7 automatically (if VPN permission already granted)
+            // 2. Start 24/7 Protection Guard Service
             try {
-                if (VpnService.prepare(context) == null) {
-                    val dnsIntent = Intent(context, LocalDnsService::class.java).apply {
-                        this.action = LocalDnsService.ACTION_START
-                    }
-                    ContextCompat.startForegroundService(context, dnsIntent)
-                    Log.i(TAG, "LocalDnsService started successfully on boot")
+                val guardIntent = Intent(context, LocalDnsService::class.java).apply {
+                    this.action = LocalDnsService.ACTION_START
                 }
+                ContextCompat.startForegroundService(context, guardIntent)
+                Log.i(TAG, "LocalDnsService guard started successfully on boot")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start LocalDnsService on boot: ${e.message}")
             }

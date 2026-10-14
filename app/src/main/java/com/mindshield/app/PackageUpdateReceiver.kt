@@ -24,14 +24,12 @@ class PackageUpdateReceiver : BroadcastReceiver() {
         // 1. Record update in SecureUpdateManager
         SecureUpdateManager.getInstance(context).recordSuccessfulUpdate()
 
-        // 2. Re-arm Local DNS Firewall 24/7 automatically in background (only if VPN permission granted)
+        // 2. Re-arm Protection Guard 24/7 automatically in background
         try {
-            if (android.net.VpnService.prepare(context) == null) {
-                val dnsIntent = Intent(context, LocalDnsService::class.java).apply {
-                    action = LocalDnsService.ACTION_START
-                }
-                ContextCompat.startForegroundService(context, dnsIntent)
+            val guardIntent = Intent(context, LocalDnsService::class.java).apply {
+                action = LocalDnsService.ACTION_START
             }
+            ContextCompat.startForegroundService(context, guardIntent)
         } catch (e: Exception) {
             e.printStackTrace()
         }
