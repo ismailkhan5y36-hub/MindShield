@@ -19,7 +19,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:letterSpacing="0.15"
-            android:text="URGE DOPAMINE BREAKER"
+            android:text="DEEP FOCUS RESET"
             android:textColor="@color/accent"
             android:textSize="12sp"
             android:textStyle="bold" />
@@ -28,7 +28,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="3-Minute Cold Friction Lock"
+            android:text="Mindful Pause & Discipline"
             android:textColor="@color/text_primary"
             android:textSize="22sp"
             android:textStyle="bold" />
@@ -62,7 +62,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="Cooldown Remaining"
+                    android:text="Mindful Reset Time"
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
             </LinearLayout>
@@ -107,7 +107,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="Slow down heart rate • Drop cortisol • Clear dopamine rush"
+                    android:text="Slow down heart rate • Regain clarity • Reclaim focus"
                     android:textColor="@color/text_secondary"
                     android:textSize="11sp" />
             </LinearLayout>
@@ -132,8 +132,8 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="⚡ Dopamine Ka Jhoot:"
-                    android:textColor="@color/danger"
+                    android:text="💎 Self-Discipline Mindset:"
+                    android:textColor="@color/accent"
                     android:textSize="13sp"
                     android:textStyle="bold" />
 
@@ -142,7 +142,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:lineSpacingExtra="3dp"
-                    android:text="5 minute ka fake maza, kal subah phir sharmindagi, kamzori aur guilt dega. Ismail, tum confident aur strong insan banna chahte ho — 3 minute sabar karo!"
+                    android:text="Ismail, sabar aur discipline hi kamyabi aur izzat ka raaz hai. Distractions temporary hain, lekin tumhara mustaqbil aur self-respect permanent hai."
                     android:textColor="@color/text_secondary"
                     android:textSize="13sp" />
 
@@ -150,8 +150,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:text="💧 Quick Physical Reset:"
-                    android:textColor="@color/accent"
+                    android:text="💧 Physical Reset:"
+                    android:textColor="#38BDF8"
                     android:textSize="12sp"
                     android:textStyle="bold" />
 
@@ -173,7 +173,7 @@
             android:layout_marginTop="20dp"
             android:layout_marginBottom="16dp"
             android:enabled="false"
-            android:text="Lock Active (Wait 03:00)"
+            android:text="Reset Active (Wait 03:00)"
             android:textAllCaps="false"
             android:textColor="#0B0F19"
             android:textSize="14sp"

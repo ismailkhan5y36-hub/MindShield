@@ -14,24 +14,27 @@ class ShieldAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var isCurrentlyInReels = false
 
-    // Mindful Pause cooldown tracker (package -> last trigger timestamp)
-    private val pauseCooldownMap = mutableMapOf<String, Long>()
-    private val PAUSE_COOLDOWN_MS = 15 * 60 * 1000L // 15 mins cooldown
-
-    private val triggerAppsForPause = setOf(
-        "com.instagram.android",
-        "com.google.android.youtube",
-        "com.zhiliaoapp.musically",
-        "com.ss.android.ugc.trill"
-    )
-
-    // Short video packages
-    private val shortVideoPackages = setOf(
-        "com.zhiliaoapp.musically",
-        "com.ss.android.ugc.trill"
+    // Dedicated short-video apps (100% hard block)
+    private val dedicatedShortVideoPackages = setOf(
+        "com.zhiliaoapp.musically",      // TikTok
+        "com.ss.android.ugc.trill",      // TikTok
+        "com.zhiliaoapp.musically.go",   // TikTok Lite
+        "com.kwai.video",                // SnackVideo
+        "com.kuaishou.nebula",           // SnackVideo
+        "com.kwai.bulldog",              // Kwai
+        "video.like",                    // Likee
+        "video.like.lite",               // Likee Lite
+        "in.moj.app",                    // Moj
+        "in.moj.lite",                   // Moj Lite
+        "com.eterno.shortvideos",        // Josh
+        "com.funnypick.zili",            // Zili
+        "com.next.innovation.takatak",   // MX TakaTak
+        "io.chingari.app",               // Chingari
+        "com.roposo.android"             // Roposo
     )
 
     // Standard browsers and in-app webviews (including VidMate & Phoenix)
+    // NOTE: com.google.android.googlequicksearchbox is intentionally EXCLUDED to protect home screen search!
     private val webBrowsersAndDownloaders = setOf(
         "com.android.chrome",
         "com.transsion.phoenix", // Tecno & Infinix browser
@@ -41,7 +44,6 @@ class ShieldAccessibilityService : AccessibilityService() {
         "com.opera.mini.native",
         "com.brave.browser",
         "com.UCMobile.intl",
-        "com.google.android.googlequicksearchbox",
         // VidMate & Downloaders (frequent bypass vectors)
         "com.nemo.vidmate",
         "com.vidmate.android",
@@ -91,21 +93,21 @@ class ShieldAccessibilityService : AccessibilityService() {
         antiCheatManager = AntiCheatManager(this)
     }
 
-    private var lastDismissActionTime = 0L
-    private val DISMISS_COOLDOWN_MS = 2000L // 2.0s debounce cooldown to prevent rapid-fire BACK presses
+    private var lastBlockActionTime = 0L
+    private val BLOCK_COOLDOWN_MS = 1500L
 
-    private fun performDebouncedBackAction() {
+    private fun triggerSafeViolationAction() {
         val now = System.currentTimeMillis()
-        if (now - lastDismissActionTime > DISMISS_COOLDOWN_MS) {
-            lastDismissActionTime = now
-            quotaManager.recordDistractionBlock()
+        if (now - lastBlockActionTime < BLOCK_COOLDOWN_MS) return
+        lastBlockActionTime = now
 
-            // Idea 1 & 2: During High-Risk Urge Windows (2-5 PM, 9 PM-6 AM, Sunday), trigger 3-Minute Cold Friction Lock!
-            if (RiskTimeEngine.isHighRiskWindow(now)) {
-                triggerColdFrictionLock()
-            } else {
-                performGlobalAction(GLOBAL_ACTION_BACK)
-            }
+        quotaManager.recordDistractionBlock()
+
+        // High-Risk Urge Windows (2-5 PM, 9 PM-6 AM, Sunday): trigger 3-Minute Cold Friction Lock!
+        if (RiskTimeEngine.isHighRiskWindow(now)) {
+            triggerColdFrictionLock()
+        } else {
+            triggerBlock(BlockActivity.REASON_DISTRACTION)
         }
     }
 
@@ -117,16 +119,39 @@ class ShieldAccessibilityService : AccessibilityService() {
         startActivity(frictionIntent)
     }
 
+    private fun triggerBlock(reason: String) {
+        performGlobalAction(GLOBAL_ACTION_HOME)
+        val blockIntent = Intent(this, BlockActivity::class.java).apply {
+            putExtra(BlockActivity.EXTRA_REASON, reason)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        startActivity(blockIntent)
+    }
+
+    private fun triggerAntiCheatDelay() {
+        performGlobalAction(GLOBAL_ACTION_HOME)
+        val coolingIntent = Intent(this, CoolingOffActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        startActivity(coolingIntent)
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         val packageName = event.packageName?.toString() ?: return
 
-        // --- RULE 0: EMERGENCY WHITELIST (CRITICAL APPS NEVER BLOCKED) ---
-        if (EmergencyWhitelist.isWhitelisted(packageName)) {
+        // --- RULE 0: EXCLUSION WHITELIST (CRITICAL SYSTEM COMPONENTS NEVER TOUCHED) ---
+        // Never interfere with MindShield itself, Launcher/Home Screen, System UI, or Emergency Whitelist!
+        if (packageName == applicationContext.packageName ||
+            packageName == "com.android.systemui" ||
+            packageName == "com.transsion.hilauncher" ||
+            packageName.contains("launcher", ignoreCase = true) ||
+            EmergencyWhitelist.isWhitelisted(packageName)) {
             return
         }
 
-        // --- RULE 1: ANTI-CHEAT & ANTI-FREEZER (2-HOUR DELAY LOCK) ---
+        // --- RULE 1: ANTI-CHEAT HARDWARE & SETTINGS LOCK (2-HOUR DELAY) ---
+        // Only enforced if user has explicitly armed Anti-Cheat!
         if (antiCheatManager.isAntiCheatEnabled() && !antiCheatManager.isMaintenanceWindowOpen()) {
             if (isAntiCheatViolation(packageName, event)) {
                 antiCheatManager.triggerCoolingOffIfIdle()
@@ -135,74 +160,242 @@ class ShieldAccessibilityService : AccessibilityService() {
             }
         }
 
-        val rootNode = rootInActiveWindow
+        // --- RULE 2: DEDICATED SHORT VIDEO APPS (100% HARD BLOCK) ---
+        // TikTok, TikTok Lite, SnackVideo, Likee, Moj, Josh, Zili, etc.
+        if (dedicatedShortVideoPackages.contains(packageName)) {
+            triggerBlock(BlockActivity.REASON_DISTRACTION)
+            return
+        }
 
-        // --- RULE 2: UNIVERSAL EXPLICIT CONTENT & MOVIEBOX MIDNIGHT BLOCKER ---
-        if (rootNode != null) {
-            // Instant tab click detection
-            if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
-                val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
-                val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
-                if (evText.contains("midnight") || evDesc.contains("midnight") ||
-                    evText.contains("novelhub") || evDesc.contains("novelhub") ||
-                    evText.contains("18+ channel") || evDesc.contains("18+ channel")
-                ) {
-                    performDebouncedBackAction()
+        // --- RULE 3: YOUTUBE SHORTS-TO-HOME SURGICAL REDIRECT ---
+        // Normal long-form YouTube videos continue smoothly!
+        if (packageName == "com.google.android.youtube") {
+            handleYouTubeShortsRedirect(event)
+            return
+        }
+
+        // --- RULE 4: INSTAGRAM & FACEBOOK REELS SURGICAL REDIRECT ---
+        if (packageName == "com.instagram.android") {
+            handleInstagramReelsRedirect(event)
+            return
+        }
+        if (packageName == "com.facebook.katana") {
+            handleFacebookReelsRedirect(event)
+            return
+        }
+
+        // --- RULE 5: MOVIEBOX & STREAMING GUARD (MIDNIGHT, NOVELHUB & SEARCH GUARD) ---
+        if (isMovieBoxPackage(packageName)) {
+            val rootNode = rootInActiveWindow
+            if (rootNode != null) {
+                val decision = SmartFilterEngine.checkMovieBox(rootNode)
+                if (decision == FilterDecision.DISMISS_BACK) {
+                    triggerSafeViolationAction()
                     return
                 }
             }
-
-            if (SmartFilterEngine.checkUniversalExplicitUi(rootNode) == FilterDecision.DISMISS_BACK) {
-                performDebouncedBackAction()
-                return
-            }
         }
 
-        // --- RULE 3: INCOGNITO / PRIVATE TAB BLOCKER (CHROME, PHOENIX, ETC.) ---
-        if (webBrowsersAndDownloaders.contains(packageName)) {
-            if (rootNode != null && isIncognitoModeActive(rootNode)) {
-                performDebouncedBackAction()
-                return
-            }
-        }
-
-        // --- RULE 4: SMART SURGICAL FILTER (BROWSERS, VIDMATE, WEBVIEWS) ---
+        // --- RULE 6: UNIVERSAL EXPLICIT CONTENT & WEB BROWSERS / DOWNLOADERS ---
         if (webBrowsersAndDownloaders.contains(packageName) || packageName.contains("vidmate", ignoreCase = true)) {
+            val rootNode = rootInActiveWindow
             if (rootNode != null) {
+                // Incognito check
+                if (isIncognitoModeActive(rootNode)) {
+                    triggerSafeViolationAction()
+                    return
+                }
+                // Smart URL bar and search query filter
                 val decision = SmartFilterEngine.evaluateBrowserContent(rootNode)
                 if (decision == FilterDecision.DISMISS_BACK) {
-                    performDebouncedBackAction()
+                    triggerSafeViolationAction()
                     return
                 }
             }
         }
 
-        // --- RULE 5: VPN & CLONE APP GUARD ON GOOGLE PLAY STORE ---
+        // --- RULE 7: VPN & CLONE APP GUARD ON GOOGLE PLAY STORE ---
         if (packageName == "com.android.vending") {
+            val rootNode = rootInActiveWindow
             if (rootNode != null && isPlayStoreRestrictedSearch(rootNode)) {
-                performGlobalAction(GLOBAL_ACTION_BACK)
+                performGlobalAction(GLOBAL_ACTION_HOME)
+                return
+            }
+        }
+    }
+
+    // --- YOUTUBE SHORTS REDIRECTOR ---
+    private var lastYouTubeRedirectTime = 0L
+    private val YT_REDIRECT_COOLDOWN_MS = 800L
+
+    private fun handleYouTubeShortsRedirect(event: AccessibilityEvent) {
+        val rootNode = rootInActiveWindow ?: return
+        val now = System.currentTimeMillis()
+
+        // Detect Shorts tab click
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
+            val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
+            if (evText.contains("shorts") || evDesc.contains("shorts")) {
+                if (now - lastYouTubeRedirectTime > YT_REDIRECT_COOLDOWN_MS) {
+                    lastYouTubeRedirectTime = now
+                    redirectYouTubeToHome(rootNode)
+                }
                 return
             }
         }
 
-        // --- RULE 6: 5-SECOND MINDFUL PAUSE (DOPAMINE FRICTION) ---
-        if (triggerAppsForPause.contains(packageName) && event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            checkAndTriggerMindfulPause(packageName)
-        }
-
-        // --- RULE 7: REELS / SHORTS (60 MINS DAILY QUOTA) ---
-        val inReels = checkIfInReelsOrShorts(packageName, event)
-
-        if (inReels) {
-            if (quotaManager.isQuotaExhausted()) {
-                triggerBlock(BlockActivity.REASON_QUOTA)
-                stopTicker()
-            } else {
-                startTicker()
+        // Detect if active in Shorts player
+        if (isYouTubeInShorts(rootNode, event)) {
+            if (now - lastYouTubeRedirectTime > YT_REDIRECT_COOLDOWN_MS) {
+                lastYouTubeRedirectTime = now
+                redirectYouTubeToHome(rootNode)
             }
-        } else {
-            stopTicker()
         }
+    }
+
+    private fun isYouTubeInShorts(rootNode: AccessibilityNodeInfo, event: AccessibilityEvent): Boolean {
+        val className = event.className?.toString() ?: ""
+        if (className.contains("ReelWatchFragment", ignoreCase = true) ||
+            className.contains("ShortsPlayer", ignoreCase = true)) {
+            return true
+        }
+
+        val allTexts = mutableListOf<String>()
+        collectAllNodeTexts(rootNode, allTexts)
+        val combined = allTexts.joinToString(" ").lowercase()
+
+        // Check if Shorts tab is selected
+        val shortsNodes = rootNode.findAccessibilityNodeInfosByText("Shorts")
+        for (node in shortsNodes) {
+            if (node.isSelected || node.parent?.isSelected == true) {
+                return true
+            }
+        }
+
+        // Check full-screen Shorts UI elements
+        val hasShortsIndicator = combined.contains("shorts")
+        val hasShortsControls = (combined.contains("remix") || combined.contains("sound") || combined.contains("dislike"))
+                && (combined.contains("comments") || combined.contains("share"))
+
+        return hasShortsIndicator && hasShortsControls
+    }
+
+    private fun redirectYouTubeToHome(rootNode: AccessibilityNodeInfo) {
+        // Attempt 1: Find Home tab in bottom navigation and click it
+        if (findAndClickHomeTab(rootNode)) {
+            return
+        }
+
+        // Attempt 2: If in full-screen player, find Navigate Up / Back button and click it
+        if (findAndClickBackButton(rootNode)) {
+            return
+        }
+
+        // Attempt 3: Single clean global action back to exit Shorts player
+        performGlobalAction(GLOBAL_ACTION_BACK)
+    }
+
+    private fun findAndClickHomeTab(rootNode: AccessibilityNodeInfo): Boolean {
+        val homeNodes = rootNode.findAccessibilityNodeInfosByText("Home")
+        for (node in homeNodes) {
+            if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                return true
+            }
+            val parent = node.parent
+            if (parent != null && parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                return true
+            }
+        }
+
+        val allNodes = mutableListOf<AccessibilityNodeInfo>()
+        collectAllNodes(rootNode, allNodes)
+        for (node in allNodes) {
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+            if (desc == "home" || desc.startsWith("home, tab") || desc.startsWith("home tab") || desc == "ہوم") {
+                if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    return true
+                }
+                val parent = node.parent
+                if (parent != null && parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private fun findAndClickBackButton(rootNode: AccessibilityNodeInfo): Boolean {
+        val allNodes = mutableListOf<AccessibilityNodeInfo>()
+        collectAllNodes(rootNode, allNodes)
+        for (node in allNodes) {
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+            if (desc.contains("navigate up") || desc.contains("go back") || desc == "back") {
+                if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    return true
+                }
+                val parent = node.parent
+                if (parent != null && parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private fun collectAllNodes(node: AccessibilityNodeInfo?, outList: MutableList<AccessibilityNodeInfo>) {
+        if (node == null) return
+        outList.add(node)
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null) collectAllNodes(child, outList)
+        }
+    }
+
+    // --- INSTAGRAM & FACEBOOK REELS REDIRECTOR ---
+    private var lastInstaRedirectTime = 0L
+
+    private fun handleInstagramReelsRedirect(event: AccessibilityEvent) {
+        val className = event.className?.toString() ?: ""
+        val rootNode = rootInActiveWindow ?: return
+        val now = System.currentTimeMillis()
+
+        val isInClips = className.contains("ClipsViewerActivity", ignoreCase = true) ||
+                (hasNodeWithContentDescription(rootNode, "Reels") && hasNodeWithContentDescription(rootNode, "Audio"))
+
+        if (isInClips || (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED &&
+            event.contentDescription?.toString()?.contains("Reels", ignoreCase = true) == true)) {
+            if (now - lastInstaRedirectTime > 800L) {
+                lastInstaRedirectTime = now
+                if (!findAndClickHomeTab(rootNode)) {
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                }
+            }
+        }
+    }
+
+    private var lastFbRedirectTime = 0L
+
+    private fun handleFacebookReelsRedirect(event: AccessibilityEvent) {
+        val className = event.className?.toString() ?: ""
+        val rootNode = rootInActiveWindow ?: return
+        val now = System.currentTimeMillis()
+
+        val isInReels = className.contains("Reel", ignoreCase = true) ||
+                hasNodeWithText(rootNode, "Reels and short videos") ||
+                hasNodeWithContentDescription(rootNode, "Reels")
+
+        if (isInReels) {
+            if (now - lastFbRedirectTime > 800L) {
+                lastFbRedirectTime = now
+                performGlobalAction(GLOBAL_ACTION_BACK)
+            }
+        }
+    }
+
+    private fun isMovieBoxPackage(packageName: String): Boolean {
+        return packageName.contains("moviebox", ignoreCase = true) ||
+                packageName == "com.transsion.moviebox"
     }
 
     private fun isIncognitoModeActive(node: AccessibilityNodeInfo): Boolean {
@@ -243,18 +436,6 @@ class ShieldAccessibilityService : AccessibilityService() {
         return false
     }
 
-    private fun checkAndTriggerMindfulPause(packageName: String) {
-        val now = System.currentTimeMillis()
-        val lastTrigger = pauseCooldownMap[packageName] ?: 0L
-        if (now - lastTrigger > PAUSE_COOLDOWN_MS) {
-            pauseCooldownMap[packageName] = now
-            val pauseIntent = Intent(this, MindfulPauseActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            startActivity(pauseIntent)
-        }
-    }
-
     private fun isAntiCheatViolation(packageName: String, event: AccessibilityEvent): Boolean {
         val rootNode = rootInActiveWindow ?: return false
         val allTexts = mutableListOf<String>()
@@ -264,15 +445,10 @@ class ShieldAccessibilityService : AccessibilityService() {
         // 1. TECNO HIOS FREEZER & PHONE MASTER (BLOCK APP FREEZING!)
         val isFreezerApp = packageName.contains("freezer", ignoreCase = true) ||
                 packageName.contains("phonemanager", ignoreCase = true) ||
-                packageName.contains("hilauncher", ignoreCase = true) ||
                 packageName == "com.transsion.freezer" ||
                 packageName == "com.transsion.phonemanager"
 
         if (isFreezerApp && (content.contains("freezer") || content.contains("freeze") || content.contains("frozen"))) {
-            return true
-        }
-
-        if (content.contains("freezer") && (content.contains("freeze") || content.contains("add"))) {
             return true
         }
 
@@ -284,31 +460,31 @@ class ShieldAccessibilityService : AccessibilityService() {
                 (content.contains("stop service") && content.contains("mindshield"))
 
         if (isTryingToTurnOff) {
-            return true // Instantly lock with 2-hour delay! Urge loophole closed!
+            return true
         }
 
-        // 2b. CHECK IF USER IS TRYING TO DEACTIVATE DEVICE ADMIN
+        // 3. CHECK IF USER IS TRYING TO DEACTIVATE DEVICE ADMIN
         if (packageName == "com.android.settings") {
             if (content.contains("mindshield") && (
                 content.contains("deactivate") ||
                 content.contains("remove device admin") ||
                 content.contains("disable device admin")
             )) {
-                return true // Block device admin removal during urges!
+                return true
             }
         }
 
-        // 3. Package Installer: Allow Update, Block Uninstall
+        // 4. Package Installer: Allow Update, Block Uninstall
         if (antiCheatTargetPackages.contains(packageName)) {
             if (content.contains("update") || content.contains("installing")) {
-                return false // Always allow updates!
+                return false
             }
             if (content.contains("mindshield") && (content.contains("uninstall") || content.contains("delete"))) {
                 return true
             }
         }
 
-        // 4. Force Stop or Uninstall prompt in Android Settings
+        // 5. Force Stop or Uninstall prompt in Android Settings
         if (packageName == "com.android.settings") {
             if (content.contains("mindshield")) {
                 if (content.contains("do you want to uninstall") ||
@@ -320,7 +496,7 @@ class ShieldAccessibilityService : AccessibilityService() {
             }
         }
 
-        // 5. LEGITIMATE PERMISSION & SETUP SCREENS (Display Over Apps, Usage, Battery)
+        // 6. LEGITIMATE PERMISSION & SETUP SCREENS (Always allow initial setup)
         if (content.contains("display over other apps") ||
             content.contains("appear on top") ||
             content.contains("draw over other apps") ||
@@ -333,7 +509,7 @@ class ShieldAccessibilityService : AccessibilityService() {
             content.contains("accessibility") ||
             content.contains("special app access")
         ) {
-            return false // Always allow initial setup permissions!
+            return false
         }
 
         return false
@@ -350,91 +526,6 @@ class ShieldAccessibilityService : AccessibilityService() {
             val child = node.getChild(i)
             if (child != null) collectAllNodeTexts(child, outList)
         }
-    }
-
-    private fun triggerAntiCheatDelay() {
-        performGlobalAction(GLOBAL_ACTION_HOME)
-        val coolingIntent = Intent(this, CoolingOffActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        startActivity(coolingIntent)
-    }
-
-    private fun checkIfInReelsOrShorts(packageName: String, event: AccessibilityEvent): Boolean {
-        if (shortVideoPackages.contains(packageName)) {
-            return true
-        }
-
-        val className = event.className?.toString() ?: ""
-        val rootNode = rootInActiveWindow ?: return false
-
-        when (packageName) {
-            "com.instagram.android" -> {
-                if (className.contains("ClipsViewerActivity", ignoreCase = true)) {
-                    return true
-                }
-                if (hasNodeWithContentDescription(rootNode, "Reels") ||
-                    hasNodeWithContentDescription(rootNode, "Reel")
-                ) {
-                    return true
-                }
-            }
-
-            "com.google.android.youtube" -> {
-                if (className.contains("Shorts", ignoreCase = true) ||
-                    className.contains("ReelWatchFragment", ignoreCase = true)
-                ) {
-                    return true
-                }
-                if (hasNodeWithContentDescription(rootNode, "Shorts") &&
-                    hasNodeWithContentDescription(rootNode, "Comments")
-                ) {
-                    return true
-                }
-            }
-
-            "com.facebook.katana" -> {
-                if (className.contains("Reels", ignoreCase = true) ||
-                    hasNodeWithText(rootNode, "Reels")
-                ) {
-                    return true
-                }
-            }
-
-            "com.snapchat.android" -> {
-                if (hasNodeWithText(rootNode, "Spotlight") ||
-                    hasNodeWithContentDescription(rootNode, "Spotlight")
-                ) {
-                    return true
-                }
-            }
-        }
-
-        return false
-    }
-
-    private fun startTicker() {
-        if (!isCurrentlyInReels) {
-            isCurrentlyInReels = true
-            handler.removeCallbacks(tickerRunnable)
-            handler.post(tickerRunnable)
-        }
-    }
-
-    private fun stopTicker() {
-        if (isCurrentlyInReels) {
-            isCurrentlyInReels = false
-            handler.removeCallbacks(tickerRunnable)
-        }
-    }
-
-    private fun triggerBlock(reason: String) {
-        performGlobalAction(GLOBAL_ACTION_HOME)
-        val blockIntent = Intent(this, BlockActivity::class.java).apply {
-            putExtra(BlockActivity.EXTRA_REASON, reason)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        startActivity(blockIntent)
     }
 
     private fun hasNodeWithContentDescription(node: AccessibilityNodeInfo?, target: String): Boolean {
@@ -466,11 +557,17 @@ class ShieldAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        stopTicker()
+        if (isCurrentlyInReels) {
+            isCurrentlyInReels = false
+            handler.removeCallbacks(tickerRunnable)
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        stopTicker()
+        if (isCurrentlyInReels) {
+            isCurrentlyInReels = false
+            handler.removeCallbacks(tickerRunnable)
+        }
     }
 }

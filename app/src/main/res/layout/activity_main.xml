@@ -268,6 +268,84 @@
                     app:strokeWidth="1dp"
                     app:cornerRadius="12dp" />
 
+                <!-- 2-Hour Anti-Cheat Hardware & Settings Lock Card -->
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/cardAntiCheatArm"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    app:cardBackgroundColor="#1A1528"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="#A855F7"
+                    app:strokeWidth="1.5dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="18dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="🛡️ 2-HOUR HARDWARE LOCK"
+                                android:textColor="#C084FC"
+                                android:textSize="11sp"
+                                android:letterSpacing="0.1"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvAntiCheatBadge"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Testing Mode"
+                                android:textColor="@color/accent"
+                                android:textSize="11sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/tvAntiCheatStatusTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:text="Status: Unlocked (Ready to Test)"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvAntiCheatStatusDesc"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="Pehle aaram se app test karein. Jab aap satisfied hon, tab Lock ON karein. Ek baar Lock ho gaya toh 2 ghante se pehle delete ya disable nahi ho sakega."
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnArmAntiCheat"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:layout_marginTop="14dp"
+                            android:text="🔒 ARM 2-HOUR LOCK (PERMANENT)"
+                            android:textAllCaps="false"
+                            android:textColor="#0B0F19"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            app:backgroundTint="#A855F7"
+                            app:cornerRadius="10dp" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
                 <!-- AI Vulnerability Windows Card -->
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
@@ -755,7 +833,7 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- 2-Hour Anti-Cheat Setting Card -->
+                <!-- 2-Hour Anti-Cheat Status Card -->
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -782,25 +860,29 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="2-Hour Anti-Cheat Delay Lock"
+                                android:text="2-Hour Hardware Lock"
                                 android:textColor="@color/text_primary"
                                 android:textSize="15sp"
                                 android:textStyle="bold" />
 
                             <TextView
+                                android:id="@+id/tvMindsetAntiCheatStatus"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="2dp"
-                                android:text="Delete ya Freezer karne par 2 ghante ka cooling delay (Default: ON)"
+                                android:text="Delete ya Freezer se bachao (Tab 1 se Arm karein)"
                                 android:textColor="@color/text_secondary"
                                 android:textSize="12sp" />
                         </LinearLayout>
 
-                        <androidx.appcompat.widget.SwitchCompat
-                            android:id="@+id/switchAntiCheat"
+                        <TextView
+                            android:id="@+id/tvMindsetAntiCheatBadge"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:checked="true" />
+                            android:text="Testing Mode"
+                            android:textColor="@color/accent"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>

@@ -62,9 +62,9 @@ class ColdFrictionActivity : AppCompatActivity() {
 
             override fun onFinish() {
                 tvColdTimer.text = "00:00"
-                tvBreathingGuide.text = "✅ Urge Dopamine Reset Complete!"
+                tvBreathingGuide.text = "✅ Focus Reset Complete! Stay Strong."
                 btnColdExit.isEnabled = true
-                btnColdExit.text = "Alhamdulillah, I Won! (Exit)"
+                btnColdExit.text = "Alhamdulillah, In Control (Exit)"
             }
         }.start()
     }

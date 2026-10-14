@@ -92,7 +92,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:lineSpacingExtra="4dp"
-                android:text="Jazbaat mein aa kar app delete ya freeze na karein. Yeh dopamine urge 15-20 minute mein khatam ho jayegi. 2 ghante poore hone ke baad 10 minute ki window milegi agar sach mein uninstall karna ho."
+                android:text="Jazbaat mein aa kar app delete ya freeze na karein. Sabar aur self-discipline hi kamyabi ka rasta hai. Yeh waqti be-chaini jald khatam ho jayegi. 2 ghante poore hone ke baad maintenance window milegi agar koi zaroori tabdeeli karni ho."
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp" />
         </LinearLayout>

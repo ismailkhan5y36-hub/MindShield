@@ -17,10 +17,10 @@ class MindResetActivity : AppCompatActivity() {
     private var timer: CountDownTimer? = null
 
     private val realityQuotes = listOf(
-        "Yeh distraction urge sirf 2 minute ki hai. Agar aapne control kiya, toh poora din pur-etimad guzrega.",
-        "5 second ka maza, ya poore din ka pachtawa? Choice aapke haath mein hai.",
+        "Yeh distraction sirf 2 minute ki hai. Agar aapne focus qayam rakha, toh poora din pur-etimad guzrega.",
+        "Waqti bhatkao ya poore din ki productivity? Choice aapke haath mein hai.",
         "Apne asal maqsad ko yaad karein. Aap is se kahin zyada qawi hain.",
-        "Dopamine crash se bachein. Asal sukoon apne targets poore karne mein hai."
+        "Asal sukoon aur izzat apne targets poore karne mein hai."
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {

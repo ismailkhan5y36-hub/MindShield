@@ -76,11 +76,18 @@ class MainActivity : AppCompatActivity() {
     private var isFocusRunning = false
     private var focusTimeLeftMs = 25 * 60 * 1000L // 25 mins
 
+    // Anti-Cheat Arming Card (Tab 1)
+    private lateinit var tvAntiCheatBadge: TextView
+    private lateinit var tvAntiCheatStatusTitle: TextView
+    private lateinit var tvAntiCheatStatusDesc: TextView
+    private lateinit var btnArmAntiCheat: MaterialButton
+
     // Tab 4: Mindset Views
     private lateinit var tvStreakDays: TextView
     private lateinit var btnOpenMindReset: MaterialButton
     private lateinit var switchReminders: SwitchCompat
-    private lateinit var switchAntiCheat: SwitchCompat
+    private lateinit var tvMindsetAntiCheatStatus: TextView
+    private lateinit var tvMindsetAntiCheatBadge: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -147,11 +154,18 @@ class MainActivity : AppCompatActivity() {
         btnResetFocus = findViewById(R.id.btnResetFocus)
         tvFocusSessionsCount = findViewById(R.id.tvFocusSessionsCount)
 
+        // Anti-Cheat Arming Card (Tab 1)
+        tvAntiCheatBadge = findViewById(R.id.tvAntiCheatBadge)
+        tvAntiCheatStatusTitle = findViewById(R.id.tvAntiCheatStatusTitle)
+        tvAntiCheatStatusDesc = findViewById(R.id.tvAntiCheatStatusDesc)
+        btnArmAntiCheat = findViewById(R.id.btnArmAntiCheat)
+
         // Mindset views
         tvStreakDays = findViewById(R.id.tvStreakDays)
         btnOpenMindReset = findViewById(R.id.btnOpenMindReset)
         switchReminders = findViewById(R.id.switchReminders)
-        switchAntiCheat = findViewById(R.id.switchAntiCheat)
+        tvMindsetAntiCheatStatus = findViewById(R.id.tvMindsetAntiCheatStatus)
+        tvMindsetAntiCheatBadge = findViewById(R.id.tvMindsetAntiCheatBadge)
     }
 
     private fun setupBottomNavigation() {
@@ -224,6 +238,24 @@ class MainActivity : AppCompatActivity() {
 
         btnUsagePermission.setOnClickListener {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        }
+
+        btnArmAntiCheat.setOnClickListener {
+            if (antiCheatManager.isAntiCheatEnabled()) {
+                android.widget.Toast.makeText(this, "Lock already permanently armed!", android.widget.Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Arm 2-Hour Lock?")
+                .setMessage("Testing mukammal ho chuki hai? Lock karne ke baad MindShield 2 ghante ke countdown ke baghair uninstall ya disable nahi hoga.\n\nKya aap lock active karna chahte hain?")
+                .setPositiveButton("Yes, Lock MindShield") { _, _ ->
+                    antiCheatManager.armAntiCheatPermanently()
+                    updateDashboard()
+                    android.widget.Toast.makeText(this, "🛡️ MindShield 2-Hour Lock Armed & Active!", android.widget.Toast.LENGTH_LONG).show()
+                }
+                .setNegativeButton("Abhi Test Karna Hai", null)
+                .show()
         }
     }
 
@@ -358,12 +390,6 @@ class MainActivity : AppCompatActivity() {
             productivityManager.setRemindersEnabled(isChecked)
             configureHourlyReminder(isChecked)
         }
-
-        // 2-Hour Anti-Cheat (Default ON)
-        switchAntiCheat.isChecked = antiCheatManager.isAntiCheatEnabled()
-        switchAntiCheat.setOnCheckedChangeListener { _, isChecked ->
-            antiCheatManager.setAntiCheatEnabled(isChecked)
-        }
     }
 
     private fun updateMindsetUI() {
@@ -497,6 +523,36 @@ class MainActivity : AppCompatActivity() {
         val savedHours = streak * 2
         tvTimeSavedWeekly.text = "Mashallah! ${savedHours}h+ Saved This Week"
 
+        // Anti-Cheat Status & Arming
+        val isArmed = antiCheatManager.isAntiCheatEnabled()
+        if (isArmed) {
+            tvAntiCheatBadge.text = "🔒 ARMED & LOCKED"
+            tvAntiCheatBadge.setTextColor(ContextCompat.getColor(this, R.color.success))
+            tvAntiCheatStatusTitle.text = "Status: Permanently Armed"
+            tvAntiCheatStatusTitle.setTextColor(ContextCompat.getColor(this, R.color.success))
+            tvAntiCheatStatusDesc.text = "Anti-Uninstall, Anti-Freezer aur Accessibility Protection 100% active hain. Reboot hone par bhi lock rahega."
+            btnArmAntiCheat.text = "✓ Armed & Protected (Permanent)"
+            btnArmAntiCheat.isEnabled = false
+            btnArmAntiCheat.alpha = 0.6f
+
+            tvMindsetAntiCheatBadge.text = "🔒 Armed"
+            tvMindsetAntiCheatBadge.setTextColor(ContextCompat.getColor(this, R.color.success))
+            tvMindsetAntiCheatStatus.text = "2-Hour delay active. Accidental uninstall se mehfooz."
+        } else {
+            tvAntiCheatBadge.text = "Testing Mode"
+            tvAntiCheatBadge.setTextColor(ContextCompat.getColor(this, R.color.accent))
+            tvAntiCheatStatusTitle.text = "Status: Unlocked (Ready to Test)"
+            tvAntiCheatStatusTitle.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
+            tvAntiCheatStatusDesc.text = "Pehle aaram se app test karein. Jab aap satisfied hon, tab Lock ON karein. Ek baar Lock ho gaya toh 2 ghante se pehle delete ya disable nahi ho sakega."
+            btnArmAntiCheat.text = "🔒 ARM 2-HOUR LOCK (PERMANENT)"
+            btnArmAntiCheat.isEnabled = true
+            btnArmAntiCheat.alpha = 1.0f
+
+            tvMindsetAntiCheatBadge.text = "Testing Mode"
+            tvMindsetAntiCheatBadge.setTextColor(ContextCompat.getColor(this, R.color.accent))
+            tvMindsetAntiCheatStatus.text = "Lock abhi off hai. Tab 1 se permanent arm karein."
+        }
+
         updateScreenTimeStats()
         updateGoalsList()
         updateFocusUI()
@@ -526,7 +582,7 @@ class MainActivity : AppCompatActivity() {
             putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, componentName)
             putExtra(
                 android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                "MindShield Hardware Lock: Disables the Uninstall button to protect you during intense dopamine urges."
+                "MindShield Hardware Lock: Disables the Uninstall button to maintain deep focus, discipline, and habit consistency."
             )
         }
         startActivity(intent)

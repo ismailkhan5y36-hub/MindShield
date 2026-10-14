@@ -16,9 +16,13 @@ class AntiCheatManager(context: Context) {
         private const val KEY_COOLING_OFF_END_TIME = "cooling_off_end_time"
     }
 
-    // Enabled by default as requested by user
+    // Starts in Testing Mode (false) so user can test before permanently locking
     fun isAntiCheatEnabled(): Boolean {
-        return prefs.getBoolean(KEY_ANTI_CHEAT_ENABLED, true)
+        return prefs.getBoolean(KEY_ANTI_CHEAT_ENABLED, false)
+    }
+
+    fun armAntiCheatPermanently() {
+        prefs.edit().putBoolean(KEY_ANTI_CHEAT_ENABLED, true).apply()
     }
 
     fun setAntiCheatEnabled(enabled: Boolean) {

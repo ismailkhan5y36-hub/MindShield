@@ -4,7 +4,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 
 enum class FilterDecision {
     ALLOW,
-    DISMISS_BACK // Press GLOBAL_ACTION_BACK (surgical tab/page exit)
+    DISMISS_BACK // Violation detected: dismiss or trigger shield overlay
 }
 
 object SmartFilterEngine {
@@ -29,10 +29,19 @@ object SmartFilterEngine {
         "xxx video", "xxx movie", "xxx porn",
         "sex video", "nude video", "hardcore sex", "blowjob", "creampie", "milf",
         "bhabhi sex", "chudai", "desi mms", "viral mms", "leaked sex",
-        "onlyfans leak", "escort service", "adult video", "adult movie"
+        "onlyfans leak", "escort service", "adult video", "adult movie",
+        "midnight 18", "novelhub", "ullu drama", "charmsukh", "erotic video"
     )
 
-    // 3. Blatant Explicit UI Signatures (Applies universally across MovieBox, Streaming apps, and Web)
+    // 3. MovieBox Specific Search & Section Filter
+    private val movieBoxExplicitTerms = setOf(
+        "midnight", "novelhub", "ullu", "hot web series", "hot movie", "hot video",
+        "charmsukh", "palang tod", "sensual", "erotic", "lust", "uncensored", "18+",
+        "porn", "porno", "xxx", "sex", "nude", "hardcore", "blowjob", "creampie", "milf",
+        "bhabhi", "chudai", "desi mms", "viral mms", "leaked", "adult video", "adult movie"
+    )
+
+    // 4. Blatant Explicit UI Signatures
     private val explicitUiSignatures = listOf(
         "porn top videos",
         "join 18+ channel",
@@ -40,6 +49,7 @@ object SmartFilterEngine {
         "midnight 18",
         "midnight (18+)",
         "novelhub [hot]",
+        "novelhub",
         "ullu drama list",
         "hardcore sex",
         "bhabhi sex",
@@ -47,27 +57,38 @@ object SmartFilterEngine {
     )
 
     /**
-     * Universal Explicit UI Check:
-     * If ANY app (MovieBox, MangoTV, or Webview) shows blatant porn headers or sections,
-     * returns DISMISS_BACK immediately!
+     * MovieBox Guard:
+     * Intercepts MovieBox tabs (Midnight / NovelHub) and strictly guards the MovieBox Search bar!
      */
-    fun checkUniversalExplicitUi(rootNode: AccessibilityNodeInfo): FilterDecision {
+    fun checkMovieBox(rootNode: AccessibilityNodeInfo): FilterDecision {
         val allTexts = mutableListOf<String>()
         collectAllTexts(rootNode, allTexts)
         if (allTexts.isEmpty()) return FilterDecision.ALLOW
 
         val combined = allTexts.joinToString(" ").lowercase()
 
-        // 1. Check for blatant explicit UI headers (e.g. MovieBox Midnight tab, Porn Top Videos, etc.)
+        // 1. Check for blatant explicit UI headers or MovieBox tabs (Midnight, NovelHub, etc.)
         for (sig in explicitUiSignatures) {
             if (combined.contains(sig)) {
                 return FilterDecision.DISMISS_BACK
             }
         }
 
-        // 2. MovieBox specific tab check: Midnight / NovelHub
+        // 2. Active Midnight / NovelHub tab selection
         if (isMovieBoxMidnightActive(rootNode)) {
             return FilterDecision.DISMISS_BACK
+        }
+
+        // 3. MovieBox Search Guard: Scan all Search inputs and queries
+        val searchTexts = mutableListOf<String>()
+        extractSearchAndInputTexts(rootNode, searchTexts)
+        for (query in searchTexts) {
+            val qLower = query.lowercase().trim()
+            for (term in movieBoxExplicitTerms) {
+                if (containsSearchKeyword(qLower, term)) {
+                    return FilterDecision.DISMISS_BACK
+                }
+            }
         }
 
         return FilterDecision.ALLOW
@@ -135,12 +156,17 @@ object SmartFilterEngine {
         val viewId = node.viewIdResourceName?.lowercase() ?: ""
         val text = node.text?.toString()?.trim() ?: ""
         val desc = node.contentDescription?.toString()?.trim() ?: ""
+        val className = node.className?.toString() ?: ""
 
         // Only extract actual URL bars or explicit search boxes, NOT generic page inputs!
         val isUrlBar = viewId.contains("url_bar") ||
                 viewId.contains("search_box") ||
                 viewId.contains("location_bar") ||
-                viewId.contains("address_bar")
+                viewId.contains("address_bar") ||
+                viewId.contains("search_src_text") ||
+                viewId.contains("search_input") ||
+                viewId.contains("search_edit_frame") ||
+                (className.contains("EditText", ignoreCase = true) && (viewId.contains("search") || viewId.contains("query") || viewId.contains("url")))
 
         if (isUrlBar) {
             if (text.isNotBlank()) outList.add(text)
@@ -151,6 +177,34 @@ object SmartFilterEngine {
             val child = node.getChild(i)
             if (child != null) {
                 extractUrlAndSearchInputs(child, outList)
+            }
+        }
+    }
+
+    fun extractSearchAndInputTexts(node: AccessibilityNodeInfo?, outList: MutableList<String>) {
+        if (node == null) return
+
+        val viewId = node.viewIdResourceName?.lowercase() ?: ""
+        val text = node.text?.toString()?.trim() ?: ""
+        val desc = node.contentDescription?.toString()?.trim() ?: ""
+        val className = node.className?.toString() ?: ""
+
+        val isSearchOrInput = className.contains("EditText", ignoreCase = true) ||
+                viewId.contains("search", ignoreCase = true) ||
+                viewId.contains("query", ignoreCase = true) ||
+                viewId.contains("keyword", ignoreCase = true) ||
+                viewId.contains("input", ignoreCase = true) ||
+                viewId.contains("url", ignoreCase = true)
+
+        if (isSearchOrInput) {
+            if (text.isNotBlank()) outList.add(text)
+            if (desc.isNotBlank()) outList.add(desc)
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null) {
+                extractSearchAndInputTexts(child, outList)
             }
         }
     }

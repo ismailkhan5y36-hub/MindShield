@@ -80,7 +80,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:lineSpacingExtra="4dp"
-                android:text="Yeh dopamine urge sirf 2 minute ki hai. Agar aapne control kiya, toh poora din pur-etimad guzrega."
+                android:text="Yeh distraction sirf 2 minute ki hai. Agar aapne focus qayam rakha, toh poora din pur-etimad guzrega."
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp" />
         </LinearLayout>
