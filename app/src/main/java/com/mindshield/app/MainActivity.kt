@@ -49,7 +49,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnOverlay: MaterialButton
     private lateinit var btnBattery: MaterialButton
     private lateinit var btnDeviceAdmin: MaterialButton
+    private lateinit var btnDnsGuard: MaterialButton
     private lateinit var tvRiskStatus: TextView
+    private val VPN_REQUEST_CODE = 3030
 
     // Tab 1: Time Saved & Screen Time Views
     private lateinit var tvTimeSavedWeekly: TextView
@@ -96,6 +98,7 @@ class MainActivity : AppCompatActivity() {
         quotaManager = DailyQuotaManager(this)
         productivityManager = ProductivityManager(this)
         antiCheatManager = AntiCheatManager(this)
+        DomainDatabase.init(this)
 
         initViews()
         setupBottomNavigation()
@@ -132,6 +135,7 @@ class MainActivity : AppCompatActivity() {
         btnOverlay = findViewById(R.id.btnOverlay)
         btnBattery = findViewById(R.id.btnBattery)
         btnDeviceAdmin = findViewById(R.id.btnDeviceAdmin)
+        btnDnsGuard = findViewById(R.id.btnDnsGuard)
         tvRiskStatus = findViewById(R.id.tvRiskStatus)
 
         // Time Saved & Screen Time
@@ -238,6 +242,15 @@ class MainActivity : AppCompatActivity() {
 
         btnUsagePermission.setOnClickListener {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        }
+
+        btnDnsGuard.setOnClickListener {
+            val vpnIntent = android.net.VpnService.prepare(this)
+            if (vpnIntent != null) {
+                startActivityForResult(vpnIntent, VPN_REQUEST_CODE)
+            } else {
+                startDnsFirewall()
+            }
         }
 
         btnArmAntiCheat.setOnClickListener {
@@ -490,6 +503,15 @@ class MainActivity : AppCompatActivity() {
             btnDeviceAdmin.strokeColor = ContextCompat.getColorStateList(this, R.color.card_stroke)
         }
 
+        val vpnPrepared = android.net.VpnService.prepare(this) == null
+        if (vpnPrepared) {
+            btnDnsGuard.text = "✓ 5. Network Firewall Active (950k+ Domains)"
+            btnDnsGuard.strokeColor = ContextCompat.getColorStateList(this, R.color.success)
+        } else {
+            btnDnsGuard.text = "5. Enable 24/7 Network Firewall (Local DNS)"
+            btnDnsGuard.strokeColor = ContextCompat.getColorStateList(this, R.color.card_stroke)
+        }
+
         if (RiskTimeEngine.isHighRiskWindow()) {
             tvRiskStatus.text = "🚨 HIGH-RISK ZONE ACTIVE (Maximum Strict AI)"
             tvRiskStatus.setTextColor(ContextCompat.getColor(this, R.color.danger))
@@ -586,6 +608,25 @@ class MainActivity : AppCompatActivity() {
             )
         }
         startActivity(intent)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == VPN_REQUEST_CODE && resultCode == RESULT_OK) {
+            startDnsFirewall()
+        }
+    }
+
+    private fun startDnsFirewall() {
+        val intent = Intent(this, LocalDnsService::class.java).apply {
+            action = LocalDnsService.ACTION_START
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(this, intent)
+        } else {
+            startService(intent)
+        }
+        updateDashboard()
     }
 
     override fun onDestroy() {

@@ -114,8 +114,8 @@ object SmartFilterEngine {
                 return FilterDecision.ALLOW
             }
 
-            // --- STEP 2: Strict Adult Hostname Match ---
-            if (adultDomains.any { host == it || host.endsWith(".$it") }) {
+            // --- STEP 2: Strict Adult Hostname Match (Checked against 950,000+ domain database) ---
+            if (DomainDatabase.isDomainBlocked(host) || adultDomains.any { host == it || host.endsWith(".$it") }) {
                 return FilterDecision.DISMISS_BACK
             }
         }

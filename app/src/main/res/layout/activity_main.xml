@@ -268,6 +268,20 @@
                     app:strokeWidth="1dp"
                     app:cornerRadius="12dp" />
 
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnDnsGuard"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginBottom="16dp"
+                    android:text="5. Enable 24/7 Network Firewall (Local DNS)"
+                    android:textAlignment="textStart"
+                    android:textAllCaps="false"
+                    android:textSize="13sp"
+                    app:backgroundTint="@color/card_bg"
+                    app:strokeColor="@color/card_stroke"
+                    app:strokeWidth="1dp"
+                    app:cornerRadius="12dp" />
+
                 <!-- 2-Hour Anti-Cheat Hardware & Settings Lock Card -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/cardAntiCheatArm"

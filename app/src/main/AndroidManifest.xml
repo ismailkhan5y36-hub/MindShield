@@ -115,6 +115,16 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- 24/7 Network Layer Local DNS Firewall -->
+        <service
+            android:name=".LocalDnsService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>
