@@ -33,17 +33,19 @@ class ShieldAccessibilityService : AccessibilityService() {
         "com.roposo.android"             // Roposo
     )
 
-    // Standard browsers and in-app webviews (including VidMate & Phoenix)
-    // NOTE: com.google.android.googlequicksearchbox is intentionally EXCLUDED to protect home screen search!
+    // Universal Multi-Browser Coverage (All major Android browsers & downloaders)
+    // NOTE: Incognito mode is fully supported for private browsing — only explicit content is filtered!
     private val webBrowsersAndDownloaders = setOf(
         "com.android.chrome",
-        "com.transsion.phoenix", // Tecno & Infinix browser
-        "com.sec.android.app.sbrowser",
-        "org.mozilla.firefox",
-        "com.opera.browser",
-        "com.opera.mini.native",
-        "com.brave.browser",
-        "com.UCMobile.intl",
+        "com.transsion.phoenix",         // Tecno & Infinix default browser
+        "com.brave.browser",             // Brave
+        "org.mozilla.firefox",           // Firefox
+        "com.opera.browser",             // Opera
+        "com.opera.mini.native",         // Opera Mini
+        "com.sec.android.app.sbrowser",  // Samsung Internet
+        "com.microsoft.emmx",            // Microsoft Edge
+        "com.UCMobile.intl",             // UC Browser
+        "com.duckduckgo.mobile.android", // DuckDuckGo
         // VidMate & Downloaders (frequent bypass vectors)
         "com.nemo.vidmate",
         "com.vidmate.android",
@@ -64,11 +66,6 @@ class ShieldAccessibilityService : AccessibilityService() {
     private val restrictedPlayStoreSearches = listOf(
         "vpn", "proxy", "turbo vpn", "nord vpn", "super vpn",
         "snack video", "tiktok lite", "instagram lite"
-    )
-
-    // Incognito tab indicator keywords
-    private val incognitoKeywords = listOf(
-        "incognito", "inprivate", "private tab", "close incognito tabs"
     )
 
     private val tickerRunnable = object : Runnable {
@@ -103,7 +100,7 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         quotaManager.recordDistractionBlock()
 
-        // High-Risk Urge Windows (2-5 PM, 9 PM-6 AM, Sunday): trigger 3-Minute Cold Friction Lock!
+        // High-Risk Windows (2-5 PM, 9 PM-6 AM, Sunday): trigger 3-Minute Cold Friction Lock
         if (RiskTimeEngine.isHighRiskWindow(now)) {
             triggerColdFrictionLock()
         } else {
@@ -151,7 +148,7 @@ class ShieldAccessibilityService : AccessibilityService() {
         }
 
         // --- RULE 1: ANTI-CHEAT HARDWARE & SETTINGS LOCK (2-HOUR DELAY) ---
-        // Only enforced if user has explicitly armed Anti-Cheat!
+        // Only active IF user has armed it!
         if (antiCheatManager.isAntiCheatEnabled() && !antiCheatManager.isMaintenanceWindowOpen()) {
             if (isAntiCheatViolation(packageName, event)) {
                 antiCheatManager.triggerCoolingOffIfIdle()
@@ -168,7 +165,7 @@ class ShieldAccessibilityService : AccessibilityService() {
         }
 
         // --- RULE 3: YOUTUBE SHORTS-TO-HOME SURGICAL REDIRECT ---
-        // Normal long-form YouTube videos continue smoothly!
+        // Long-form educational YouTube videos continue smoothly!
         if (packageName == "com.google.android.youtube") {
             handleYouTubeShortsRedirect(event)
             return
@@ -184,7 +181,7 @@ class ShieldAccessibilityService : AccessibilityService() {
             return
         }
 
-        // --- RULE 5: MOVIEBOX & STREAMING GUARD (MIDNIGHT, NOVELHUB & SEARCH GUARD) ---
+        // --- RULE 5: MOVIEBOX & STREAMING GUARD (MIDNIGHT, NOVELHUB & INTENT SEARCH GUARD) ---
         if (isMovieBoxPackage(packageName)) {
             val rootNode = rootInActiveWindow
             if (rootNode != null) {
@@ -196,16 +193,11 @@ class ShieldAccessibilityService : AccessibilityService() {
             }
         }
 
-        // --- RULE 6: UNIVERSAL EXPLICIT CONTENT & WEB BROWSERS / DOWNLOADERS ---
-        if (webBrowsersAndDownloaders.contains(packageName) || packageName.contains("vidmate", ignoreCase = true)) {
+        // --- RULE 6: UNIVERSAL BROWSERS & DOWNLOADERS (SEMANTIC INTENT BRAIN) ---
+        // Evaluates ALL browsers. Allows Incognito freely; filters only explicit content!
+        if (isBrowserOrDownloader(packageName)) {
             val rootNode = rootInActiveWindow
             if (rootNode != null) {
-                // Incognito check
-                if (isIncognitoModeActive(rootNode)) {
-                    triggerSafeViolationAction()
-                    return
-                }
-                // Smart URL bar and search query filter
                 val decision = SmartFilterEngine.evaluateBrowserContent(rootNode)
                 if (decision == FilterDecision.DISMISS_BACK) {
                     triggerSafeViolationAction()
@@ -222,6 +214,12 @@ class ShieldAccessibilityService : AccessibilityService() {
                 return
             }
         }
+    }
+
+    private fun isBrowserOrDownloader(packageName: String): Boolean {
+        if (webBrowsersAndDownloaders.contains(packageName)) return true
+        val lower = packageName.lowercase()
+        return lower.contains("browser") || lower.contains("vidmate") || lower.contains("downloader")
     }
 
     // --- YOUTUBE SHORTS REDIRECTOR ---
@@ -396,25 +394,6 @@ class ShieldAccessibilityService : AccessibilityService() {
     private fun isMovieBoxPackage(packageName: String): Boolean {
         return packageName.contains("moviebox", ignoreCase = true) ||
                 packageName == "com.transsion.moviebox"
-    }
-
-    private fun isIncognitoModeActive(node: AccessibilityNodeInfo): Boolean {
-        val text = node.text?.toString()?.lowercase() ?: ""
-        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-
-        for (kw in incognitoKeywords) {
-            if (text.contains(kw) || desc.contains(kw)) {
-                return true
-            }
-        }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            if (child != null && isIncognitoModeActive(child)) {
-                return true
-            }
-        }
-        return false
     }
 
     private fun isPlayStoreRestrictedSearch(node: AccessibilityNodeInfo): Boolean {
