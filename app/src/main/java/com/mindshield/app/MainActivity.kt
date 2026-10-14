@@ -2,6 +2,8 @@ package com.mindshield.app
 
 import android.app.AlarmManager
 import android.app.PendingIntent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -241,6 +243,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // --- TAB 1: SHIELD & SCREEN TIME LOGIC ---
+    private fun setupShieldListeners() {
         btnAccessibility.setOnClickListener {
             if (isAccessibilityServiceEnabled()) {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
