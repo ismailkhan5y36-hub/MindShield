@@ -28,7 +28,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Mindful Pause & Discipline"
+            android:text="Mindful Pause &amp; Discipline"
             android:textColor="@color/text_primary"
             android:textSize="22sp"
             android:textStyle="bold" />
