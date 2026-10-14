@@ -191,51 +191,8 @@ object SmartFilterEngine {
         // Normalize text: replace 🔞 emoji with "18+"
         val combined = allTexts.joinToString(" ").lowercase().replace("🔞", " 18+ ")
 
-        // --- STEP 0: MovieBox Surgical Isolation ---
+        // --- STEP 0: MovieBox Full Clearance (User requested 100% bypass) ---
         if (isMovieBoxPackage(packageName)) {
-            // Check if actual adult section content is rendered on screen
-            val hasAdultContent = combined.contains("porn top videos") ||
-                    combined.contains("porn top video") ||
-                    combined.contains("anal sex") ||
-                    combined.contains("join 18+ channel") ||
-                    combined.contains("join 18+ group") ||
-                    (combined.contains("18+ channel") && (combined.contains("join") || combined.contains("telegram"))) ||
-                    (combined.contains("novelhub") && combined.contains("hot")) ||
-                    combined.contains("ullu drama list") ||
-                    combined.contains("ullu originals") ||
-                    combined.contains("my hentai girlfriend") ||
-                    combined.contains("hardcore sex") ||
-                    combined.contains("bhabhi sex") ||
-                    combined.contains("chudai video") ||
-                    combined.contains("chudai") ||
-                    combined.contains("desi mms") ||
-                    combined.contains("viral mms") ||
-                    combined.contains("blowjob") ||
-                    combined.contains("creampie") ||
-                    combined.contains("milf porn") ||
-                    combined.contains("onlyfans leak") ||
-                    combined.contains("charmsukh") ||
-                    combined.contains("palang tod") ||
-                    combined.contains("xxx video") ||
-                    combined.contains("xxx movie") ||
-                    combined.contains("sex video") ||
-                    combined.contains("adult video")
-
-            if (hasAdultContent) {
-                return FilterDecision.DISMISS_BACK
-            }
-
-            // Check if user is typing an explicit query in MovieBox search box
-            val searchTexts = mutableListOf<String>()
-            extractSearchAndInputTexts(rootNode, searchTexts)
-            for (query in searchTexts) {
-                if (evaluateSearchQueryIntent(query) == FilterDecision.DISMISS_BACK) {
-                    return FilterDecision.DISMISS_BACK
-                }
-            }
-
-            // For ALL other MovieBox screens (Home, Doraemon, Naruto, BuzzBox, Trending Movies, TV, ShortTV, etc.):
-            // 100% UNINTERRUPTED ALLOW!
             return FilterDecision.ALLOW
         }
 

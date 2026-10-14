@@ -14,8 +14,8 @@ class SecureUpdateManager(context: Context) {
 
     companion object {
         const val MASTER_SERIAL_KEY = "MS-SEC-2026-X9K"
-        const val CURRENT_VERSION_CODE = 16
-        const val CURRENT_VERSION_NAME = "v6.5.0"
+        const val CURRENT_VERSION_CODE = 17
+        const val CURRENT_VERSION_NAME = "v6.6.0"
 
         private const val KEY_LAST_UPDATE_TIME = "last_update_timestamp"
         private const val KEY_AUTHORIZED_SERIAL = "authorized_serial_key"

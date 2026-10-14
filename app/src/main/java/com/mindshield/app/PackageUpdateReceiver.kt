@@ -37,24 +37,7 @@ class PackageUpdateReceiver : BroadcastReceiver() {
         }
 
         // 3. Attempt Programmatic Self-Healing of Accessibility Service
-        val expectedService = "${context.packageName}/${ShieldAccessibilityService::class.java.canonicalName}"
-        val cr = context.contentResolver
-
-        var isAutoHealed = false
-        try {
-            val currentServices = Settings.Secure.getString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: ""
-            if (!currentServices.contains(expectedService)) {
-                val newServices = if (currentServices.isEmpty()) expectedService else "$currentServices:$expectedService"
-                Settings.Secure.putString(cr, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, newServices)
-                Settings.Secure.putString(cr, Settings.Secure.ACCESSIBILITY_ENABLED, "1")
-                isAutoHealed = true
-            } else {
-                isAutoHealed = true
-            }
-        } catch (ignored: SecurityException) {
-            // WRITE_SECURE_SETTINGS not granted via ADB yet -> Use 1-Tap Recovery Fallback
-            isAutoHealed = false
-        }
+        val isAutoHealed = AccessibilityAutoHealer.healAccessibility(context)
 
         // 4. If not auto-healed, launch 1-Tap Recovery Screen and high-priority notification
         if (!isAutoHealed) {
@@ -98,7 +81,7 @@ class PackageUpdateReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle("🛡️ MindShield Updated to v6.3.0")
+            .setContentTitle("🛡️ MindShield Updated")
             .setContentText("Tap to verify Accessibility and ensure 24/7 active protection.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)

@@ -33,7 +33,15 @@ object EmergencyWhitelist {
         "com.android.camera",
         "com.google.android.GoogleCamera",
         "com.transsion.camera",
-        "com.google.android.apps.maps"
+        "com.google.android.apps.maps",
+
+        // MovieBox Full Clearance (User requested 100% bypass)
+        "com.community.oneroom",
+        "com.transsion.moviebox",
+        "com.transsion.magellan",
+        "com.playbox.movie",
+        "com.mb.android",
+        "com.universal.free.movie"
     )
 
     fun isWhitelisted(packageName: String): Boolean {

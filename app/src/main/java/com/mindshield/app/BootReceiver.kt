@@ -6,36 +6,51 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.net.VpnService
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 
 class BootReceiver : BroadcastReceiver() {
 
+    companion object {
+        private const val TAG = "BootReceiver"
+    }
+
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: return
+        Log.i(TAG, "BootReceiver received action: $action")
+
         if (action == Intent.ACTION_BOOT_COMPLETED ||
             action == "android.intent.action.LOCKED_BOOT_COMPLETED" ||
-            action == Intent.ACTION_MY_PACKAGE_REPLACED
+            action == Intent.ACTION_MY_PACKAGE_REPLACED ||
+            action == "android.intent.action.QUICKBOOT_POWERON" ||
+            action == "com.htc.intent.action.QUICKBOOT_POWERON"
         ) {
-            val antiCheatManager = AntiCheatManager(context)
+            // 1. Programmatically auto-heal Accessibility Service via WRITE_SECURE_SETTINGS
+            val isHealed = AccessibilityAutoHealer.healAccessibility(context)
+            Log.i(TAG, "Accessibility auto-heal on boot result: $isHealed")
 
-            // Check if accessibility service is running
-            if (!isAccessibilityServiceEnabled(context)) {
+            // 2. Re-arm Local DNS Firewall 24/7 automatically (if VPN permission already granted)
+            try {
+                if (VpnService.prepare(context) == null) {
+                    val dnsIntent = Intent(context, LocalDnsService::class.java).apply {
+                        this.action = LocalDnsService.ACTION_START
+                    }
+                    ContextCompat.startForegroundService(context, dnsIntent)
+                    Log.i(TAG, "LocalDnsService started successfully on boot")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start LocalDnsService on boot: ${e.message}")
+            }
+
+            // 3. Fallback alert ONLY if auto-healing failed and accessibility is not running
+            if (!AccessibilityAutoHealer.isAccessibilityEnabled(context)) {
                 showAccessibilityAlertNotification(context)
             }
         }
-    }
-
-    private fun isAccessibilityServiceEnabled(context: Context): Boolean {
-        val expectedComponentName = "${context.packageName}/${ShieldAccessibilityService::class.java.canonicalName}"
-        val enabledServices = Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-
-        return enabledServices.contains(expectedComponentName) ||
-                enabledServices.contains(ShieldAccessibilityService::class.java.simpleName)
     }
 
     private fun showAccessibilityAlertNotification(context: Context) {

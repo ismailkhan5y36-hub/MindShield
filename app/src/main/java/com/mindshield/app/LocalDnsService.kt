@@ -8,6 +8,8 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.util.Log
+import android.util.LruCache
 import androidx.core.app.NotificationCompat
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -23,20 +25,37 @@ class LocalDnsService : VpnService() {
         const val ACTION_STOP = "com.mindshield.app.STOP_DNS"
         private const val NOTIFICATION_ID = 4040
         private const val CHANNEL_ID = "mindshield_dns_guard"
+        private const val TAG = "LocalDnsService"
 
-        // CleanBrowsing Family Filter Safe DNS (Filters adult domains & malicious sites)
-        private const val UPSTREAM_SAFE_DNS = "185.228.168.168"
+        // Upstream Fast Anycast DNS with Safe filtering & high availability failover
+        private val UPSTREAM_DNS_SERVERS = listOf(
+            "1.1.1.3",      // Cloudflare Family Safe DNS (filters adult/malware, lowest ping in Asia)
+            "94.140.14.14", // AdGuard Family Safe DNS
+            "1.1.1.1",      // Cloudflare Standard Anycast fallback
+            "8.8.8.8"       // Google Standard Anycast fallback
+        )
         private const val UPSTREAM_DNS_PORT = 53
+        private const val DNS_TIMEOUT_MS = 1200
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
     @Volatile
     private var isRunning = false
-    private val workerExecutor = Executors.newFixedThreadPool(2)
+
+    // High throughput dynamic cached thread pool - no queue bottleneck for parallel queries
+    private val workerExecutor = Executors.newCachedThreadPool()
+
+    // 0ms DNS In-Memory Cache (Domain -> Resolved DNS Payload)
+    private val dnsCache = LruCache<String, ByteArray>(1024)
+
+    // 15-second Watchdog thread for zero-touch Accessibility survival
+    private var watchdogThread: Thread? = null
 
     override fun onCreate() {
         super.onCreate()
         DomainDatabase.init(this)
+        // Check & heal accessibility on service start
+        AccessibilityAutoHealer.healAccessibility(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -100,6 +119,8 @@ class LocalDnsService : VpnService() {
         if (isRunning) return
         isRunning = true
 
+        startWatchdog()
+
         workerExecutor.execute {
             try {
                 // Route ONLY DNS traffic through local interface (Zero data/speed drop on normal internet)
@@ -124,10 +145,36 @@ class LocalDnsService : VpnService() {
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e(TAG, "DNS loop encountered error: ${e.message}")
             } finally {
                 stopDnsService()
             }
+        }
+    }
+
+    private fun startWatchdog() {
+        watchdogThread?.interrupt()
+        watchdogThread = Thread({
+            Log.i(TAG, "Accessibility watchdog thread started")
+            while (isRunning) {
+                try {
+                    Thread.sleep(15000)
+                    if (!isRunning) break
+
+                    if (!AccessibilityAutoHealer.isAccessibilityEnabled(this)) {
+                        Log.w(TAG, "Watchdog detected Accessibility was inactive! Auto-healing via WRITE_SECURE_SETTINGS...")
+                        AccessibilityAutoHealer.healAccessibility(this)
+                    }
+                } catch (e: InterruptedException) {
+                    break
+                } catch (e: Exception) {
+                    Log.e(TAG, "Watchdog loop error: ${e.message}")
+                }
+            }
+            Log.i(TAG, "Accessibility watchdog thread stopped")
+        }, "MindShield-Watchdog").apply {
+            isDaemon = true
+            start()
         }
     }
 
@@ -138,6 +185,13 @@ class LocalDnsService : VpnService() {
 
         // 0. Whitelist Check: If domain is explicitly whitelisted by user, forward directly!
         if (customRules.isDomainWhitelisted(domain)) {
+            val cachedPayload = dnsCache.get(domain)
+            if (cachedPayload != null) {
+                workerExecutor.execute {
+                    sendCachedDnsResponse(query, cachedPayload, outStream)
+                }
+                return
+            }
             workerExecutor.execute {
                 forwardCleanQuery(query, packet, outStream)
             }
@@ -164,7 +218,16 @@ class LocalDnsService : VpnService() {
             return
         }
 
-        // 4. Clean Query -> Forward to Upstream CleanBrowsing Family Safe DNS (185.228.168.168)
+        // 4. Check 0ms In-Memory DNS Cache for clean resolved response
+        val cachedPayload = dnsCache.get(domain)
+        if (cachedPayload != null) {
+            workerExecutor.execute {
+                sendCachedDnsResponse(query, cachedPayload, outStream)
+            }
+            return
+        }
+
+        // 5. Clean Query -> Forward to High-Speed Upstream Anycast DNS with multi-server failover
         workerExecutor.execute {
             forwardCleanQuery(query, packet, outStream)
         }
@@ -180,73 +243,128 @@ class LocalDnsService : VpnService() {
         }
     }
 
+    private fun sendCachedDnsResponse(query: DnsQuery, cachedPayload: ByteArray, outStream: FileOutputStream) {
+        try {
+            val respLength = cachedPayload.size
+            val udpLength = 8 + respLength
+            val totalLength = 20 + udpLength
+            val clientPacket = ByteArray(totalLength)
+
+            // IPv4 Header
+            clientPacket[0] = 0x45.toByte()
+            clientPacket[2] = ((totalLength ushr 8) and 0xFF).toByte()
+            clientPacket[3] = (totalLength and 0xFF).toByte()
+            clientPacket[8] = 64.toByte() // TTL
+            clientPacket[9] = 17.toByte() // Protocol UDP
+            System.arraycopy(query.dstIp, 0, clientPacket, 12, 4) // Source IP
+            System.arraycopy(query.srcIp, 0, clientPacket, 16, 4) // Dest IP
+
+            // IP Checksum
+            val checksum = computeChecksum(clientPacket, 0, 20)
+            clientPacket[10] = ((checksum ushr 8) and 0xFF).toByte()
+            clientPacket[11] = (checksum and 0xFF).toByte()
+
+            // UDP Header
+            clientPacket[20] = ((query.dstPort ushr 8) and 0xFF).toByte()
+            clientPacket[21] = (query.dstPort and 0xFF).toByte()
+            clientPacket[22] = ((query.srcPort ushr 8) and 0xFF).toByte()
+            clientPacket[23] = (query.srcPort and 0xFF).toByte()
+            clientPacket[24] = ((udpLength ushr 8) and 0xFF).toByte()
+            clientPacket[25] = (udpLength and 0xFF).toByte()
+
+            // DNS Payload
+            System.arraycopy(cachedPayload, 0, clientPacket, 28, respLength)
+
+            // Overwrite Transaction ID with current query's transaction ID
+            clientPacket[28] = ((query.transactionId.toInt() ushr 8) and 0xFF).toByte()
+            clientPacket[29] = (query.transactionId.toInt() and 0xFF).toByte()
+
+            synchronized(outStream) {
+                outStream.write(clientPacket)
+            }
+        } catch (ignored: Exception) {}
+    }
 
     private fun forwardCleanQuery(query: DnsQuery, originalPacket: ByteArray, outStream: FileOutputStream) {
-        var socket: DatagramSocket? = null
-        try {
-            socket = DatagramSocket()
-            protect(socket) // Protect socket from looping into our own VPN!
-            socket.soTimeout = 2500
+        val dnsPayload = ByteArray(query.dnsPayloadLength)
+        System.arraycopy(originalPacket, query.dnsPayloadOffset, dnsPayload, 0, query.dnsPayloadLength)
 
-            val dnsPayload = ByteArray(query.dnsPayloadLength)
-            System.arraycopy(originalPacket, query.dnsPayloadOffset, dnsPayload, 0, query.dnsPayloadLength)
+        var resolvedPacket: ByteArray? = null
+        var resolvedPayload: ByteArray? = null
 
-            val upstreamAddr = InetAddress.getByName(UPSTREAM_SAFE_DNS)
-            val sendPacket = DatagramPacket(dnsPayload, dnsPayload.size, upstreamAddr, UPSTREAM_DNS_PORT)
-            socket.send(sendPacket)
+        // Try primary safe anycast servers first, fall back seamlessly
+        for (upstreamIp in UPSTREAM_DNS_SERVERS) {
+            var socket: DatagramSocket? = null
+            try {
+                socket = DatagramSocket()
+                protect(socket) // Protect socket from looping into our own VPN!
+                socket.soTimeout = DNS_TIMEOUT_MS
 
-            val respBuffer = ByteArray(2048)
-            val recvPacket = DatagramPacket(respBuffer, respBuffer.size)
-            socket.receive(recvPacket)
+                val upstreamAddr = InetAddress.getByName(upstreamIp)
+                val sendPacket = DatagramPacket(dnsPayload, dnsPayload.size, upstreamAddr, UPSTREAM_DNS_PORT)
+                socket.send(sendPacket)
 
-            val respLength = recvPacket.length
-            if (respLength > 0) {
-                // Synthesize complete IP+UDP packet wrapping the upstream DNS response
-                val udpLength = 8 + respLength
-                val totalLength = 20 + udpLength
-                val clientPacket = ByteArray(totalLength)
+                val respBuffer = ByteArray(2048)
+                val recvPacket = DatagramPacket(respBuffer, respBuffer.size)
+                socket.receive(recvPacket)
 
-                // IPv4 Header
-                clientPacket[0] = 0x45.toByte()
-                clientPacket[2] = ((totalLength ushr 8) and 0xFF).toByte()
-                clientPacket[3] = (totalLength and 0xFF).toByte()
-                clientPacket[8] = 64.toByte() // TTL
-                clientPacket[9] = 17.toByte() // Protocol UDP
-                System.arraycopy(query.dstIp, 0, clientPacket, 12, 4) // Source IP
-                System.arraycopy(query.srcIp, 0, clientPacket, 16, 4) // Dest IP
+                val respLength = recvPacket.length
+                if (respLength >= 12) {
+                    val udpLength = 8 + respLength
+                    val totalLength = 20 + udpLength
+                    val clientPacket = ByteArray(totalLength)
 
-                // IP Checksum
-                val checksum = computeChecksum(clientPacket, 0, 20)
-                clientPacket[10] = ((checksum ushr 8) and 0xFF).toByte()
-                clientPacket[11] = (checksum and 0xFF).toByte()
+                    // IPv4 Header
+                    clientPacket[0] = 0x45.toByte()
+                    clientPacket[2] = ((totalLength ushr 8) and 0xFF).toByte()
+                    clientPacket[3] = (totalLength and 0xFF).toByte()
+                    clientPacket[8] = 64.toByte() // TTL
+                    clientPacket[9] = 17.toByte() // Protocol UDP
+                    System.arraycopy(query.dstIp, 0, clientPacket, 12, 4) // Source IP
+                    System.arraycopy(query.srcIp, 0, clientPacket, 16, 4) // Dest IP
 
-                // UDP Header
-                clientPacket[20] = ((query.dstPort ushr 8) and 0xFF).toByte()
-                clientPacket[21] = (query.dstPort and 0xFF).toByte()
-                clientPacket[22] = ((query.srcPort ushr 8) and 0xFF).toByte()
-                clientPacket[23] = (query.srcPort and 0xFF).toByte()
-                clientPacket[24] = ((udpLength ushr 8) and 0xFF).toByte()
-                clientPacket[25] = (udpLength and 0xFF).toByte()
+                    // IP Checksum
+                    val checksum = computeChecksum(clientPacket, 0, 20)
+                    clientPacket[10] = ((checksum ushr 8) and 0xFF).toByte()
+                    clientPacket[11] = (checksum and 0xFF).toByte()
 
-                // DNS Payload
-                System.arraycopy(respBuffer, 0, clientPacket, 28, respLength)
+                    // UDP Header
+                    clientPacket[20] = ((query.dstPort ushr 8) and 0xFF).toByte()
+                    clientPacket[21] = (query.dstPort and 0xFF).toByte()
+                    clientPacket[22] = ((query.srcPort ushr 8) and 0xFF).toByte()
+                    clientPacket[23] = (query.srcPort and 0xFF).toByte()
+                    clientPacket[24] = ((udpLength ushr 8) and 0xFF).toByte()
+                    clientPacket[25] = (udpLength and 0xFF).toByte()
 
-                synchronized(outStream) {
-                    outStream.write(clientPacket)
+                    // DNS Payload
+                    System.arraycopy(respBuffer, 0, clientPacket, 28, respLength)
+
+                    resolvedPacket = clientPacket
+                    resolvedPayload = respBuffer.copyOf(respLength)
+                    break // Successfully resolved!
                 }
+            } catch (e: Exception) {
+                // Timeout or network drop on this upstream -> try next server
+                continue
+            } finally {
+                try {
+                    socket?.close()
+                } catch (ignored: Exception) {}
             }
-        } catch (e: Exception) {
-            // Fallback: If upstream times out or fails, synthesize 0.0.0.0
-            try {
-                val fallback = DnsPacketParser.buildBlockedResponse(query, originalPacket)
-                synchronized(outStream) {
-                    outStream.write(fallback)
-                }
-            } catch (ignored: Exception) {}
-        } finally {
-            try {
-                socket?.close()
-            } catch (ignored: Exception) {}
+        }
+
+        if (resolvedPacket != null && resolvedPayload != null) {
+            // Cache resolved DNS response for instantaneous 0ms future lookups
+            dnsCache.put(query.domain, resolvedPayload)
+            synchronized(outStream) {
+                try {
+                    outStream.write(resolvedPacket)
+                } catch (ignored: Exception) {}
+            }
+        } else {
+            // IMPORTANT: NEVER synthesize 0.0.0.0 on network timeout!
+            // Dropping the packet allows the OS and apps to retransmit cleanly without poisoning DNS cache
+            Log.w(TAG, "DNS lookup for ${query.domain} timed out across all upstreams; dropped.")
         }
     }
 
@@ -267,6 +385,8 @@ class LocalDnsService : VpnService() {
 
     private fun stopDnsService() {
         isRunning = false
+        watchdogThread?.interrupt()
+        watchdogThread = null
         try {
             vpnInterface?.close()
         } catch (ignored: Exception) {}

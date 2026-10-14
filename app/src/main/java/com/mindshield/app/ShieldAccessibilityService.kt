@@ -105,7 +105,6 @@ class ShieldAccessibilityService : AccessibilityService() {
     }
 
     private var lastBlockActionTime = 0L
-    private var lastMovieBoxBackTime = 0L
     private val BLOCK_COOLDOWN_MS = 1500L
 
     private fun triggerSafeViolationAction() {
@@ -165,9 +164,10 @@ class ShieldAccessibilityService : AccessibilityService() {
         val packageName = event.packageName?.toString() ?: return
 
         // --- RULE 0: EXCLUSION WHITELIST (CRITICAL SYSTEM COMPONENTS NEVER TOUCHED) ---
-        // Never interfere with MindShield itself, System UI, or Emergency Whitelist!
+        // Never interfere with MindShield itself, System UI, MovieBox, or Emergency Whitelist!
         if (packageName == applicationContext.packageName ||
             packageName == "com.android.systemui" ||
+            isMovieBoxPackage(packageName) ||
             EmergencyWhitelist.isWhitelisted(packageName)) {
             return
         }
@@ -178,13 +178,21 @@ class ShieldAccessibilityService : AccessibilityService() {
                 packageName.contains("launcher", ignoreCase = true)
 
         if (isLauncher) {
+            val rootNode = rootInActiveWindow
+
+            // Universal Self-Defense: MindShield or Notes can NEVER be added to Freezer or disabled
+            if (isFreezerTargetingMindShield(rootNode, event)) {
+                performGlobalAction(GLOBAL_ACTION_HOME)
+                return
+            }
+
             // If anti-cheat is NOT active or maintenance window is open: launcher is safe to pass immediately
             if (!antiCheatManager.isAntiCheatEnabled() || antiCheatManager.isMaintenanceWindowOpen()) {
                 return
             }
 
             // Anti-cheat IS active: Check if user is clicking or interacting with Freezer inside launcher
-            if (isFreezerInteraction(event)) {
+            if (isFreezerActive(rootNode, event)) {
                 antiCheatManager.triggerCoolingOffIfIdle()
                 triggerAntiCheatDelay()
                 return
@@ -239,13 +247,12 @@ class ShieldAccessibilityService : AccessibilityService() {
             return
         }
 
-        // --- RULE 5: UNIVERSAL AI CONTENT BRAIN (ALL STREAMING APPS, MOVIEBOX, BROWSERS, & MEDIA) ---
+        // --- RULE 5: UNIVERSAL AI CONTENT BRAIN (BROWSERS, MEDIA, THIRD-PARTY APPS) ---
         val rootNode = rootInActiveWindow
         val activePkg = rootNode?.packageName?.toString() ?: packageName
 
-        // MOVIEBOX SURGICAL PROTECTION: Never close MovieBox! Block ONLY Midnight 🔞 tab!
-        if (isMovieBoxPackage(activePkg) || isMovieBoxPackage(packageName)) {
-            handleMovieBoxSurgicalProtection(event, rootNode)
+        // Fast-pass: Never interfere with MovieBox or Whitelisted apps
+        if (isMovieBoxPackage(activePkg) || isMovieBoxPackage(packageName) || EmergencyWhitelist.isWhitelisted(activePkg)) {
             return
         }
 
@@ -452,96 +459,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                 packageName == "com.universal.free.movie"
     }
 
-    private var lastMovieBoxTabSwitchTime = 0L
 
-    private fun handleMovieBoxSurgicalProtection(event: AccessibilityEvent, rootNode: AccessibilityNodeInfo?) {
-        val now = System.currentTimeMillis()
-        if (now - lastMovieBoxTabSwitchTime < 350L) return
-
-        // 1. Surgical Tab Click Intercept: Intercept user click on Midnight 🔞 tab
-        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
-            val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
-            val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
-            if (evText.contains("midnight") || evDesc.contains("midnight") ||
-                (evText.contains("18+") && !evText.contains("join")) ||
-                (evDesc.contains("18+") && !evDesc.contains("join"))) {
-                lastMovieBoxTabSwitchTime = now
-                redirectMovieBoxToSafeTab(rootNode)
-                return
-            }
-        }
-
-        if (rootNode == null) return
-
-        // 2. Active Tab Selection Detection: Check if Midnight tab is selected
-        if (isMidnightTabSelected(rootNode)) {
-            lastMovieBoxTabSwitchTime = now
-            redirectMovieBoxToSafeTab(rootNode)
-            return
-        }
-
-        // 3. Explicit Adult Feed Inspection (Telegram adult channel links, porn videos, etc.)
-        val decision = SmartFilterEngine.evaluateUniversalScreenContent(rootNode, "com.community.oneroom")
-        if (decision == FilterDecision.DISMISS_BACK) {
-            lastMovieBoxTabSwitchTime = now
-            // Switch away to safe tab, or press back ONLY if in a sub-activity (e.g. video player/detail)
-            val isMainActivity = rootNode.className?.toString()?.contains("MainActivity") == true ||
-                    hasNodeWithText(rootNode, "BuzzBox") ||
-                    hasNodeWithText(rootNode, "Indian") ||
-                    hasNodeWithText(rootNode, "TV")
-            if (isMainActivity) {
-                redirectMovieBoxToSafeTab(rootNode)
-            } else {
-                performGlobalAction(GLOBAL_ACTION_BACK)
-            }
-        }
-    }
-
-    private fun isMidnightTabSelected(node: AccessibilityNodeInfo?): Boolean {
-        if (node == null) return false
-        val text = node.text?.toString()?.lowercase() ?: ""
-        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-
-        if (text.contains("midnight") || desc.contains("midnight")) {
-            if (node.isSelected || node.parent?.isSelected == true || node.parent?.parent?.isSelected == true) {
-                return true
-            }
-        }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            if (child != null && isMidnightTabSelected(child)) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private fun redirectMovieBoxToSafeTab(rootNode: AccessibilityNodeInfo?) {
-        if (rootNode == null) return
-        val safeTabs = listOf("BuzzBox", "Indian", "TV", "FightZone", "Game", "Cricket", "Bangla")
-        for (tabName in safeTabs) {
-            val nodes = rootNode.findAccessibilityNodeInfosByText(tabName)
-            if (!nodes.isNullOrEmpty()) {
-                for (n in nodes) {
-                    if (n.isClickable) {
-                        n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        return
-                    }
-                    val parent = n.parent
-                    if (parent != null && parent.isClickable) {
-                        parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        return
-                    }
-                    val grandParent = parent?.parent
-                    if (grandParent != null && grandParent.isClickable) {
-                        grandParent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        return
-                    }
-                }
-            }
-        }
-    }
 
     private fun isPlayStoreRestrictedSearch(node: AccessibilityNodeInfo): Boolean {
         val text = node.text?.toString()?.lowercase() ?: ""
@@ -628,9 +546,11 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         // 5. Force Stop or Uninstall prompt in Android Settings
         if (lowerPkg == "com.android.settings") {
-            if (content.contains("mindshield")) {
+            if (content.contains("mindshield") || content.contains("notes")) {
                 if (content.contains("do you want to uninstall") ||
                     content.contains("uninstall this app") ||
+                    content.contains("clear data") ||
+                    content.contains("clear storage") ||
                     (content.contains("force stop") && content.contains("if you force stop"))
                 ) {
                     return true
@@ -657,49 +577,69 @@ class ShieldAccessibilityService : AccessibilityService() {
         return false
     }
 
-    private fun isFreezerInteraction(event: AccessibilityEvent): Boolean {
-        // 1. Detect click on Freezer or Freeze button
-        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
-            val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
-            val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
-            if (evText.contains("freezer") || evText.contains("freeze") ||
-                evDesc.contains("freezer") || evDesc.contains("freeze")) {
-                return true
-            }
+    private fun isFreezerTargetingMindShield(rootNode: AccessibilityNodeInfo?, event: AccessibilityEvent): Boolean {
+        val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
+        val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
+        val isTargetingApp = evText.contains("mindshield") || evText.contains("notes") ||
+                evDesc.contains("mindshield") || evDesc.contains("notes")
+
+        if (rootNode == null) {
+            return isTargetingApp && (evText.contains("freeze") || evDesc.contains("freeze"))
         }
 
-        // 2. Detect Freezer folder/dialog inside launcher
-        val rootNode = rootInActiveWindow ?: return false
-        return hasFreezerIndicators(rootNode)
+        val allTexts = mutableListOf<String>()
+        collectAllNodeTexts(rootNode, allTexts)
+        val content = allTexts.joinToString(" ").lowercase()
+
+        val hasTargetApp = content.contains("mindshield") || content.contains("notes")
+        val hasFreezeOrDisable = content.contains("freeze") || content.contains("freezer") ||
+                content.contains("frozen") || content.contains("add to freezer") ||
+                content.contains("auto freeze") || content.contains("freeze app") ||
+                content.contains("unfreeze")
+
+        return hasTargetApp && hasFreezeOrDisable
     }
 
-    private fun hasFreezerIndicators(node: AccessibilityNodeInfo?): Boolean {
+    private fun isFreezerActive(rootNode: AccessibilityNodeInfo?, event: AccessibilityEvent): Boolean {
+        // 1. Check Event metadata
+        val evClass = event.className?.toString()?.lowercase() ?: ""
+        if (evClass.contains("freeze") || evClass.contains("freezer") || evClass.contains("himgr")) {
+            return true
+        }
+
+        val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
+        val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
+        if (evText.contains("freezer") || evText.contains("freeze") ||
+            evDesc.contains("freezer") || evDesc.contains("freeze")) {
+            return true
+        }
+
+        // 2. Check window content
+        if (rootNode == null) return false
+        val allTexts = mutableListOf<String>()
+        collectAllNodeTexts(rootNode, allTexts)
+        val combined = allTexts.joinToString(" ").lowercase()
+
+        if (combined.contains("freezer") || combined.contains("freeze apps") ||
+            combined.contains("frozen apps") || combined.contains("add to freezer") ||
+            combined.contains("freeze app") || combined.contains("frozen") ||
+            combined.contains("auto freeze") || combined.contains("freezer settings")) {
+            return true
+        }
+
+        // 3. Check View IDs
+        return hasNodeWithFreezerId(rootNode)
+    }
+
+    private fun hasNodeWithFreezerId(node: AccessibilityNodeInfo?): Boolean {
         if (node == null) return false
         val viewId = node.viewIdResourceName?.lowercase() ?: ""
         if (viewId.contains("freeze") || viewId.contains("freezer") || viewId.contains("himgr")) {
             return true
         }
-
-        val text = node.text?.toString()?.lowercase()?.trim() ?: ""
-        val desc = node.contentDescription?.toString()?.lowercase()?.trim() ?: ""
-
-        if (text == "freezer" || text == "freeze apps" || text == "frozen apps" ||
-            text == "add to freezer" || text == "freeze app" || text == "frozen" ||
-            desc == "freezer" || desc == "freeze apps" || desc == "add to freezer") {
-            val className = node.className?.toString() ?: ""
-            if (className.contains("TextView") || className.contains("Button")) {
-                val parent = node.parent
-                val parentId = parent?.viewIdResourceName?.lowercase() ?: ""
-                val parentClass = parent?.className?.toString() ?: ""
-                if (parentId.contains("freeze") || parentId.contains("title") || parentId.contains("header") || parentClass.contains("Folder")) {
-                    return true
-                }
-            }
-        }
-
         for (i in 0 until node.childCount) {
             val child = node.getChild(i)
-            if (child != null && hasFreezerIndicators(child)) {
+            if (child != null && hasNodeWithFreezerId(child)) {
                 return true
             }
         }
