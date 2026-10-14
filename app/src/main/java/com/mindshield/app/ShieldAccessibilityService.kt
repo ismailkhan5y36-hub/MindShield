@@ -56,12 +56,22 @@ class ShieldAccessibilityService : AccessibilityService() {
         "com.snaptube.premium"
     )
 
-    // Anti-Cheat packages: Package Installer and Tecno/HiOS Freezer
+    // Anti-Cheat packages: Package Installer, Tecno/HiOS Freezer & PhoneMaster
     private val antiCheatTargetPackages = setOf(
         "com.google.android.packageinstaller",
         "com.android.packageinstaller",
         "com.transsion.freezer",
-        "com.transsion.appmanager"
+        "com.transsion.phonemaster",
+        "com.transsion.phonemanager",
+        "com.transsion.appmanager",
+        "com.cyin.himgr"
+    )
+
+    private val freezerPackages = setOf(
+        "com.transsion.phonemaster",
+        "com.transsion.phonemanager",
+        "com.transsion.freezer",
+        "com.cyin.himgr"
     )
 
     // Google Play Store bypassing tools searches
@@ -155,12 +165,31 @@ class ShieldAccessibilityService : AccessibilityService() {
         val packageName = event.packageName?.toString() ?: return
 
         // --- RULE 0: EXCLUSION WHITELIST (CRITICAL SYSTEM COMPONENTS NEVER TOUCHED) ---
-        // Never interfere with MindShield itself, Launcher/Home Screen, System UI, or Emergency Whitelist!
+        // Never interfere with MindShield itself, System UI, or Emergency Whitelist!
         if (packageName == applicationContext.packageName ||
             packageName == "com.android.systemui" ||
-            packageName == "com.transsion.hilauncher" ||
-            packageName.contains("launcher", ignoreCase = true) ||
             EmergencyWhitelist.isWhitelisted(packageName)) {
+            return
+        }
+
+        // Launcher Check: Launcher/Home screen is whitelisted for normal navigation,
+        // UNLESS the user is inside Tecno HiOS Freezer attempting to freeze apps while Anti-Cheat is armed!
+        val isLauncher = packageName == "com.transsion.hilauncher" ||
+                packageName.contains("launcher", ignoreCase = true)
+
+        if (isLauncher) {
+            // If anti-cheat is NOT active or maintenance window is open: launcher is safe to pass immediately
+            if (!antiCheatManager.isAntiCheatEnabled() || antiCheatManager.isMaintenanceWindowOpen()) {
+                return
+            }
+
+            // Anti-cheat IS active: Check if user is clicking or interacting with Freezer inside launcher
+            if (isFreezerInteraction(event)) {
+                antiCheatManager.triggerCoolingOffIfIdle()
+                triggerAntiCheatDelay()
+                return
+            }
+            // Normal Home screen navigation: allow freely!
             return
         }
 
@@ -447,20 +476,36 @@ class ShieldAccessibilityService : AccessibilityService() {
     }
 
     private fun isAntiCheatViolation(packageName: String, event: AccessibilityEvent): Boolean {
+        val lowerPkg = packageName.lowercase()
+
+        // 1. TECNO HIOS FREEZER & PHONE MASTER (100% UNBYPASSABLE HARD LOCK)
+        val isFreezerApp = lowerPkg.contains("freezer") ||
+                lowerPkg.contains("phonemaster") ||
+                lowerPkg.contains("phonemanager") ||
+                lowerPkg.contains("cyin.himgr") ||
+                freezerPackages.contains(lowerPkg)
+
+        if (isFreezerApp) {
+            val rootNode = rootInActiveWindow
+            if (rootNode != null) {
+                val allTexts = mutableListOf<String>()
+                collectAllNodeTexts(rootNode, allTexts)
+                val content = allTexts.joinToString(" ").lowercase()
+
+                if (content.contains("freezer") || content.contains("freeze") ||
+                    content.contains("frozen") || content.contains("disable") ||
+                    content.contains("uninstall") || content.contains("mindshield") ||
+                    content.contains("notes")) {
+                    return true
+                }
+            }
+            return true
+        }
+
         val rootNode = rootInActiveWindow ?: return false
         val allTexts = mutableListOf<String>()
         collectAllNodeTexts(rootNode, allTexts)
         val content = allTexts.joinToString(" ").lowercase()
-
-        // 1. TECNO HIOS FREEZER & PHONE MASTER (BLOCK APP FREEZING!)
-        val isFreezerApp = packageName.contains("freezer", ignoreCase = true) ||
-                packageName.contains("phonemanager", ignoreCase = true) ||
-                packageName == "com.transsion.freezer" ||
-                packageName == "com.transsion.phonemanager"
-
-        if (isFreezerApp && (content.contains("freezer") || content.contains("freeze") || content.contains("frozen"))) {
-            return true
-        }
 
         // 2. CHECK IF USER IS TRYING TO STOP / TURN OFF MINDSHIELD IN ACCESSIBILITY SETTINGS
         val isTryingToTurnOff = content.contains("stop mindshield") ||
@@ -474,7 +519,7 @@ class ShieldAccessibilityService : AccessibilityService() {
         }
 
         // 3. CHECK IF USER IS TRYING TO DEACTIVATE DEVICE ADMIN
-        if (packageName == "com.android.settings") {
+        if (lowerPkg == "com.android.settings") {
             if (content.contains("mindshield") && (
                 content.contains("deactivate") ||
                 content.contains("remove device admin") ||
@@ -485,7 +530,7 @@ class ShieldAccessibilityService : AccessibilityService() {
         }
 
         // 4. Package Installer: Allow Update, Block Uninstall
-        if (antiCheatTargetPackages.contains(packageName)) {
+        if (antiCheatTargetPackages.contains(lowerPkg) || lowerPkg.contains("packageinstaller")) {
             if (content.contains("update") || content.contains("installing")) {
                 return false
             }
@@ -495,7 +540,7 @@ class ShieldAccessibilityService : AccessibilityService() {
         }
 
         // 5. Force Stop or Uninstall prompt in Android Settings
-        if (packageName == "com.android.settings") {
+        if (lowerPkg == "com.android.settings") {
             if (content.contains("mindshield")) {
                 if (content.contains("do you want to uninstall") ||
                     content.contains("uninstall this app") ||
@@ -522,6 +567,55 @@ class ShieldAccessibilityService : AccessibilityService() {
             return false
         }
 
+        return false
+    }
+
+    private fun isFreezerInteraction(event: AccessibilityEvent): Boolean {
+        // 1. Detect click on Freezer or Freeze button
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
+            val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
+            if (evText.contains("freezer") || evText.contains("freeze") ||
+                evDesc.contains("freezer") || evDesc.contains("freeze")) {
+                return true
+            }
+        }
+
+        // 2. Detect Freezer folder/dialog inside launcher
+        val rootNode = rootInActiveWindow ?: return false
+        return hasFreezerIndicators(rootNode)
+    }
+
+    private fun hasFreezerIndicators(node: AccessibilityNodeInfo?): Boolean {
+        if (node == null) return false
+        val viewId = node.viewIdResourceName?.lowercase() ?: ""
+        if (viewId.contains("freeze") || viewId.contains("freezer") || viewId.contains("himgr")) {
+            return true
+        }
+
+        val text = node.text?.toString()?.lowercase()?.trim() ?: ""
+        val desc = node.contentDescription?.toString()?.lowercase()?.trim() ?: ""
+
+        if (text == "freezer" || text == "freeze apps" || text == "frozen apps" ||
+            text == "add to freezer" || text == "freeze app" || text == "frozen" ||
+            desc == "freezer" || desc == "freeze apps" || desc == "add to freezer") {
+            val className = node.className?.toString() ?: ""
+            if (className.contains("TextView") || className.contains("Button")) {
+                val parent = node.parent
+                val parentId = parent?.viewIdResourceName?.lowercase() ?: ""
+                val parentClass = parent?.className?.toString() ?: ""
+                if (parentId.contains("freeze") || parentId.contains("title") || parentId.contains("header") || parentClass.contains("Folder")) {
+                    return true
+                }
+            }
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null && hasFreezerIndicators(child)) {
+                return true
+            }
+        }
         return false
     }
 

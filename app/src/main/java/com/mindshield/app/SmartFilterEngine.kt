@@ -432,21 +432,12 @@ object SmartFilterEngine {
     fun extractSearchAndInputTexts(node: AccessibilityNodeInfo?, outList: MutableList<String>) {
         if (node == null) return
 
-        val viewId = node.viewIdResourceName?.lowercase() ?: ""
-        val text = node.text?.toString()?.trim() ?: ""
-        val desc = node.contentDescription?.toString()?.trim() ?: ""
         val className = node.className?.toString() ?: ""
+        val isEditText = className.contains("EditText", ignoreCase = true)
 
-        val isSearchOrInput = className.contains("EditText", ignoreCase = true) ||
-                viewId.contains("search", ignoreCase = true) ||
-                viewId.contains("query", ignoreCase = true) ||
-                viewId.contains("keyword", ignoreCase = true) ||
-                viewId.contains("input", ignoreCase = true) ||
-                viewId.contains("url", ignoreCase = true)
-
-        if (isSearchOrInput) {
+        if (isEditText) {
+            val text = node.text?.toString()?.trim() ?: ""
             if (text.isNotBlank()) outList.add(text)
-            if (desc.isNotBlank()) outList.add(desc)
         }
 
         for (i in 0 until node.childCount) {
