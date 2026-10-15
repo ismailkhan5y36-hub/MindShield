@@ -316,10 +316,19 @@ class ShieldAccessibilityService : AccessibilityService() {
         collectAllNodeTexts(rootNode, allTexts)
         val combined = allTexts.joinToString(" ").lowercase()
 
-        // Check if Shorts tab is selected
-        val shortsNodes = rootNode.findAccessibilityNodeInfosByText("Shorts")
-        for (node in shortsNodes) {
-            if (node.isSelected || node.parent?.isSelected == true) {
+        // Check if Shorts tab is selected by text or content description
+        val allNodes = mutableListOf<AccessibilityNodeInfo>()
+        collectAllNodes(rootNode, allNodes)
+        for (node in allNodes) {
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+            val text = node.text?.toString()?.lowercase() ?: ""
+            val viewId = node.viewIdResourceName?.lowercase() ?: ""
+
+            if ((desc.contains("shorts") || text.contains("shorts")) &&
+                (node.isSelected || node.parent?.isSelected == true)) {
+                return true
+            }
+            if (viewId.contains("reel_recycler") || viewId.contains("shorts_player") || viewId.contains("reel_watch_fragment")) {
                 return true
             }
         }
@@ -363,7 +372,8 @@ class ShieldAccessibilityService : AccessibilityService() {
         collectAllNodes(rootNode, allNodes)
         for (node in allNodes) {
             val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-            if (desc == "home" || desc.startsWith("home, tab") || desc.startsWith("home tab") || desc == "ہوم") {
+            if (desc == "home" || desc.startsWith("home, tab") || desc.startsWith("home tab") ||
+                desc == "ہوم" || desc.contains("news feed")) {
                 if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     return true
                 }
@@ -381,7 +391,9 @@ class ShieldAccessibilityService : AccessibilityService() {
         collectAllNodes(rootNode, allNodes)
         for (node in allNodes) {
             val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-            if (desc.contains("navigate up") || desc.contains("go back") || desc == "back") {
+            val viewId = node.viewIdResourceName?.lowercase() ?: ""
+            if (desc.contains("navigate up") || desc.contains("go back") || desc == "back" ||
+                desc.contains("close") || viewId.contains("action_bar_back") || viewId.contains("btn_back")) {
                 if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     return true
                 }
@@ -407,46 +419,201 @@ class ShieldAccessibilityService : AccessibilityService() {
     private var lastInstaRedirectTime = 0L
 
     private fun handleInstagramReelsRedirect(event: AccessibilityEvent) {
-        val className = event.className?.toString() ?: ""
         val rootNode = rootInActiveWindow ?: return
         val now = System.currentTimeMillis()
 
-        // Only redirect when actively in the full-screen ClipsViewerActivity
-        val isInClips = className.contains("ClipsViewerActivity", ignoreCase = true)
-        val isReelsClick = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED &&
-                event.contentDescription?.toString()?.equals("Reels", ignoreCase = true) == true
-
-        if (isInClips || isReelsClick) {
-            if (now - lastInstaRedirectTime > 1200L) {
+        if (isInstagramInReels(rootNode, event)) {
+            if (now - lastInstaRedirectTime > 800L) {
                 lastInstaRedirectTime = now
-                val rootNode = rootInActiveWindow
-                if (rootNode == null || !findAndClickHomeTab(rootNode)) {
-                    performGlobalAction(GLOBAL_ACTION_BACK)
-                }
+                redirectInstagramToHome(rootNode)
             }
         }
+    }
+
+    private fun isInstagramInReels(rootNode: AccessibilityNodeInfo, event: AccessibilityEvent): Boolean {
+        val className = event.className?.toString() ?: ""
+        if (className.contains("ClipsViewerActivity", ignoreCase = true)) {
+            return true
+        }
+
+        // 1. Direct Click on Reels Tab or Reel Card
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
+            val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
+            if (evDesc.contains("reel") || evText.contains("reel") || evDesc.contains("clips")) {
+                return true
+            }
+        }
+
+        // 2. Scan all nodes in active window
+        val allNodes = mutableListOf<AccessibilityNodeInfo>()
+        collectAllNodes(rootNode, allNodes)
+
+        var isReelsTabSelected = false
+        var isHomeTabSelected = false
+        var hasClipsViewerId = false
+        var hasReelAudioOrRemix = false
+        var hasActionButtons = false
+
+        for (node in allNodes) {
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+            val text = node.text?.toString()?.lowercase() ?: ""
+            val viewId = node.viewIdResourceName?.lowercase() ?: ""
+
+            // Check if Reels tab is selected in bottom bar
+            if ((desc.contains("reels") || text.contains("reels") || desc.contains("clips")) &&
+                (node.isSelected || node.parent?.isSelected == true)) {
+                isReelsTabSelected = true
+            }
+
+            // Check if Home feed tab is selected in bottom bar
+            if ((desc.contains("home") || desc.contains("feed") || desc.contains("ہوم")) &&
+                (node.isSelected || node.parent?.isSelected == true)) {
+                isHomeTabSelected = true
+            }
+
+            // Check for dedicated Reels/Clips viewer resource IDs
+            if (viewId.contains("clips_viewer") || viewId.contains("clips_video_container") ||
+                viewId.contains("reel_viewer") || viewId.contains("clips_action_button") ||
+                viewId.contains("clips_swipe_refresh")) {
+                hasClipsViewerId = true
+            }
+
+            // Check for audio / remix indicator
+            if (desc.contains("original audio") || desc.contains("audio page") ||
+                text.contains("original audio") || desc.contains("use audio") ||
+                desc.contains("remix") || text.contains("remix")) {
+                hasReelAudioOrRemix = true
+            }
+
+            // Check for reel action buttons (comment/share)
+            if (desc.contains("comment") || desc.contains("share") || desc.contains("send post")) {
+                hasActionButtons = true
+            }
+        }
+
+        // If user is explicitly on the Reels tab
+        if (isReelsTabSelected) {
+            return true
+        }
+
+        // If dedicated clips viewer resource ID is found on screen
+        if (hasClipsViewerId) {
+            return true
+        }
+
+        // If watching full-screen reel (has audio/remix + comments/share) AND Home feed is not active
+        if (hasReelAudioOrRemix && hasActionButtons && !isHomeTabSelected) {
+            return true
+        }
+
+        return false
+    }
+
+    private fun redirectInstagramToHome(rootNode: AccessibilityNodeInfo) {
+        if (findAndClickHomeTab(rootNode)) {
+            return
+        }
+        if (findAndClickBackButton(rootNode)) {
+            return
+        }
+        performGlobalAction(GLOBAL_ACTION_BACK)
     }
 
     private var lastFbRedirectTime = 0L
 
     private fun handleFacebookReelsRedirect(event: AccessibilityEvent) {
-        val className = event.className?.toString() ?: ""
+        val rootNode = rootInActiveWindow ?: return
         val now = System.currentTimeMillis()
 
-        // Only redirect when actively in the dedicated full-screen Reels viewer
-        val isInReelsViewer = className.contains("ReelsViewerActivity", ignoreCase = true) ||
-                className.contains("FbShortsViewerActivity", ignoreCase = true) ||
-                className.contains("FbShortsPlayerActivity", ignoreCase = true)
-
-        val isReelsClick = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED &&
-                event.contentDescription?.toString()?.equals("Reels", ignoreCase = true) == true
-
-        if (isInReelsViewer || isReelsClick) {
-            if (now - lastFbRedirectTime > 1200L) {
+        if (isFacebookInReels(rootNode, event)) {
+            if (now - lastFbRedirectTime > 800L) {
                 lastFbRedirectTime = now
-                performGlobalAction(GLOBAL_ACTION_BACK)
+                redirectFacebookToHome(rootNode)
             }
         }
+    }
+
+    private fun isFacebookInReels(rootNode: AccessibilityNodeInfo, event: AccessibilityEvent): Boolean {
+        val className = event.className?.toString() ?: ""
+        if (className.contains("ReelsViewerActivity", ignoreCase = true) ||
+            className.contains("FbShortsViewerActivity", ignoreCase = true) ||
+            className.contains("FbShortsPlayerActivity", ignoreCase = true)) {
+            return true
+        }
+
+        // 1. Direct Click on Reels Tab or Reel Card
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
+            val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
+            if (evDesc.contains("reel") || evText.contains("reel") || evDesc.contains("fb_shorts")) {
+                return true
+            }
+        }
+
+        // 2. Scan all nodes in active window
+        val allNodes = mutableListOf<AccessibilityNodeInfo>()
+        collectAllNodes(rootNode, allNodes)
+
+        var isReelsTabSelected = false
+        var isHomeFeedSelected = false
+        var hasFbShortsId = false
+        var hasReelAudioOrRemix = false
+
+        for (node in allNodes) {
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+            val text = node.text?.toString()?.lowercase() ?: ""
+            val viewId = node.viewIdResourceName?.lowercase() ?: ""
+
+            // Check if Reels tab is selected in Facebook bar
+            if ((desc.contains("reels") || text.contains("reels")) &&
+                (node.isSelected || node.parent?.isSelected == true)) {
+                isReelsTabSelected = true
+            }
+
+            // Check if standard News Feed / Home tab is selected
+            if ((desc.contains("news feed") || desc.contains("home, tab") || desc == "home") &&
+                (node.isSelected || node.parent?.isSelected == true)) {
+                isHomeFeedSelected = true
+            }
+
+            // Dedicated FB shorts viewer resource ID
+            if (viewId.contains("fb_shorts") || viewId.contains("reels_viewer") ||
+                viewId.contains("unified_reels") || viewId.contains("reel_video")) {
+                hasFbShortsId = true
+            }
+
+            // Dedicated Reels interaction markers
+            if (desc.contains("remix this reel") || text.contains("remix this reel") ||
+                desc.contains("reels audio") || text.contains("reels audio") ||
+                desc.contains("original audio") || text.contains("original audio")) {
+                hasReelAudioOrRemix = true
+            }
+        }
+
+        if (isReelsTabSelected) {
+            return true
+        }
+
+        if (hasFbShortsId) {
+            return true
+        }
+
+        if (hasReelAudioOrRemix && !isHomeFeedSelected) {
+            return true
+        }
+
+        return false
+    }
+
+    private fun redirectFacebookToHome(rootNode: AccessibilityNodeInfo) {
+        if (findAndClickHomeTab(rootNode)) {
+            return
+        }
+        if (findAndClickBackButton(rootNode)) {
+            return
+        }
+        performGlobalAction(GLOBAL_ACTION_BACK)
     }
 
     private fun isMovieBoxPackage(packageName: String): Boolean {
