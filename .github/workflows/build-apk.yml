@@ -63,6 +63,16 @@ jobs:
           git commit -m "Build error log"
           git push -f origin build-log
 
+      - name: Push APK to apk-release branch
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git checkout -B apk-release
+          cp app/build/outputs/apk/debug/app-debug.apk ./mindshield.apk
+          git add -f ./mindshield.apk
+          git commit -m "MindShield v6.6.1 Release APK"
+          git push -f origin apk-release
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
