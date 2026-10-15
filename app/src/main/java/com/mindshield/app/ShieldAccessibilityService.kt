@@ -311,7 +311,6 @@ class ShieldAccessibilityService : AccessibilityService() {
         }
 
         // --- RULE 5: UNIVERSAL AI CONTENT BRAIN (BROWSERS, MEDIA, THIRD-PARTY APPS) ---
-        val rootNode = rootInActiveWindow
         val activePkg = rootNode?.packageName?.toString() ?: packageName
 
         // Fast-pass: Never interfere with MovieBox or Whitelisted apps
