@@ -142,7 +142,14 @@ class ShieldAccessibilityService : AccessibilityService() {
         startActivity(nightIntent)
     }
 
+    private var lastDirectBlockTime = 0L
+    private val DIRECT_BLOCK_COOLDOWN_MS = 2000L
+
     private fun triggerBlock(reason: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastDirectBlockTime < DIRECT_BLOCK_COOLDOWN_MS) return
+        lastDirectBlockTime = now
+
         performGlobalAction(GLOBAL_ACTION_HOME)
         val blockIntent = Intent(this, BlockActivity::class.java).apply {
             putExtra(BlockActivity.EXTRA_REASON, reason)
@@ -151,7 +158,14 @@ class ShieldAccessibilityService : AccessibilityService() {
         startActivity(blockIntent)
     }
 
+    private var lastAntiCheatTriggerTime = 0L
+    private val ANTICHEAT_COOLDOWN_MS = 2500L
+
     private fun triggerAntiCheatDelay() {
+        val now = System.currentTimeMillis()
+        if (now - lastAntiCheatTriggerTime < ANTICHEAT_COOLDOWN_MS) return
+        lastAntiCheatTriggerTime = now
+
         performGlobalAction(GLOBAL_ACTION_HOME)
         val coolingIntent = Intent(this, CoolingOffActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -248,10 +262,10 @@ class ShieldAccessibilityService : AccessibilityService() {
             return
         }
 
-        // Only evaluate browsers, downloaders, and search engines — never innocent utility or daily apps!
-        if (isBrowserOrDownloader(packageName) || packageName == "com.google.android.googlequicksearchbox") {
+        // Only evaluate browsers and downloaders via targeted URL & search bar inspection!
+        if (isBrowserOrDownloader(packageName)) {
             if (rootNode != null) {
-                val decision = SmartFilterEngine.evaluateUniversalScreenContent(rootNode, packageName)
+                val decision = SmartFilterEngine.evaluateBrowserContent(rootNode)
                 if (decision == FilterDecision.DISMISS_BACK) {
                     triggerSafeViolationAction()
                     return
@@ -283,11 +297,12 @@ class ShieldAccessibilityService : AccessibilityService() {
         val rootNode = rootInActiveWindow ?: return
         val now = System.currentTimeMillis()
 
-        // Detect Shorts tab click
+        // Detect Shorts tab click (only the tab itself, not video titles that mention 'shorts')
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
-            val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
-            val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
-            if (evText.contains("shorts") || evDesc.contains("shorts")) {
+            val evText = event.text?.joinToString(" ")?.lowercase()?.trim() ?: ""
+            val evDesc = event.contentDescription?.toString()?.lowercase()?.trim() ?: ""
+            if (evText.contains("shorts, tab") || evDesc.contains("shorts, tab") ||
+                evText == "shorts" || evDesc == "shorts" || evDesc.startsWith("shorts tab")) {
                 if (now - lastYouTubeRedirectTime > YT_REDIRECT_COOLDOWN_MS) {
                     lastYouTubeRedirectTime = now
                     redirectYouTubeToHome(rootNode)
@@ -312,10 +327,6 @@ class ShieldAccessibilityService : AccessibilityService() {
             return true
         }
 
-        val allTexts = mutableListOf<String>()
-        collectAllNodeTexts(rootNode, allTexts)
-        val combined = allTexts.joinToString(" ").lowercase()
-
         // Check if Shorts tab is selected by text or content description
         val allNodes = mutableListOf<AccessibilityNodeInfo>()
         collectAllNodes(rootNode, allNodes)
@@ -333,12 +344,7 @@ class ShieldAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Check full-screen Shorts UI elements
-        val hasShortsIndicator = combined.contains("shorts")
-        val hasShortsControls = (combined.contains("remix") || combined.contains("sound") || combined.contains("dislike"))
-                && (combined.contains("comments") || combined.contains("share"))
-
-        return hasShortsIndicator && hasShortsControls
+        return false
     }
 
     private fun redirectYouTubeToHome(rootNode: AccessibilityNodeInfo) {
@@ -628,23 +634,32 @@ class ShieldAccessibilityService : AccessibilityService() {
 
 
 
-    private fun isPlayStoreRestrictedSearch(node: AccessibilityNodeInfo): Boolean {
-        val text = node.text?.toString()?.lowercase() ?: ""
-        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-
-        for (kw in restrictedPlayStoreSearches) {
-            if (text.contains(kw) || desc.contains(kw)) {
-                return true
-            }
-        }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            if (child != null && isPlayStoreRestrictedSearch(child)) {
-                return true
+    private fun isPlayStoreRestrictedSearch(rootNode: AccessibilityNodeInfo): Boolean {
+        val searchBoxes = mutableListOf<AccessibilityNodeInfo>()
+        findSearchInputNodes(rootNode, searchBoxes)
+        for (box in searchBoxes) {
+            val text = box.text?.toString()?.lowercase()?.trim() ?: ""
+            if (text.isBlank()) continue
+            for (kw in restrictedPlayStoreSearches) {
+                if (text == kw || text.startsWith("$kw ") || text.contains(" $kw ") || text.endsWith(" $kw")) {
+                    return true
+                }
             }
         }
         return false
+    }
+
+    private fun findSearchInputNodes(node: AccessibilityNodeInfo?, outList: MutableList<AccessibilityNodeInfo>) {
+        if (node == null) return
+        val className = node.className?.toString() ?: ""
+        val viewId = node.viewIdResourceName?.lowercase() ?: ""
+        if (className.contains("EditText", ignoreCase = true) || viewId.contains("search") || viewId.contains("query")) {
+            outList.add(node)
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null) findSearchInputNodes(child, outList)
+        }
     }
 
     private fun isAntiCheatViolation(packageName: String, event: AccessibilityEvent): Boolean {
