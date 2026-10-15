@@ -1,9 +1,13 @@
 package com.mindshield.app
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -15,8 +19,17 @@ class ShieldAccessibilityService : AccessibilityService() {
     private lateinit var nightShieldManager: NightShieldManager
     private val handler = Handler(Looper.getMainLooper())
     private var isCurrentlyInReels = false
+    private var currentReelsPackage: String? = null
 
-    // Dedicated short-video apps (100% hard block)
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_SCREEN_OFF) {
+                stopTicker()
+            }
+        }
+    }
+
+    // Dedicated short-video apps (Under 1-Hour Daily Quota)
     private val dedicatedShortVideoPackages = setOf(
         "com.zhiliaoapp.musically",      // TikTok
         "com.ss.android.ugc.trill",      // TikTok
@@ -87,12 +100,29 @@ class ShieldAccessibilityService : AccessibilityService() {
 
                 if (quotaManager.isQuotaExhausted()) {
                     triggerBlock(BlockActivity.REASON_QUOTA)
-                    isCurrentlyInReels = false
+                    stopTicker()
                     return
                 }
 
                 handler.postDelayed(this, 1000)
             }
+        }
+    }
+
+    private fun startTicker(pkg: String) {
+        currentReelsPackage = pkg
+        if (!isCurrentlyInReels) {
+            isCurrentlyInReels = true
+            handler.removeCallbacks(tickerRunnable)
+            handler.post(tickerRunnable)
+        }
+    }
+
+    private fun stopTicker() {
+        if (isCurrentlyInReels) {
+            isCurrentlyInReels = false
+            currentReelsPackage = null
+            handler.removeCallbacks(tickerRunnable)
         }
     }
 
@@ -102,6 +132,13 @@ class ShieldAccessibilityService : AccessibilityService() {
         antiCheatManager = AntiCheatManager(this)
         customRulesManager = CustomRulesManager.getInstance(this)
         nightShieldManager = NightShieldManager.getInstance(this)
+
+        try {
+            val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+            registerReceiver(screenReceiver, filter)
+        } catch (e: Exception) {
+            Log.e("ShieldService", "Failed to register screenReceiver", e)
+        }
     }
 
     private var lastBlockActionTime = 0L
@@ -183,27 +220,30 @@ class ShieldAccessibilityService : AccessibilityService() {
             packageName == "com.android.systemui" ||
             isMovieBoxPackage(packageName) ||
             EmergencyWhitelist.isWhitelisted(packageName)) {
+            if (packageName != currentReelsPackage) {
+                stopTicker()
+            }
             return
         }
 
-        // Launcher Check: Launcher/Home screen is whitelisted for normal navigation,
-        // UNLESS the user is inside Tecno HiOS Freezer attempting to freeze apps while Anti-Cheat is armed!
+        // Launcher Check: Launcher/Home screen is whitelisted for normal navigation & Freezer
         val isLauncher = packageName == "com.transsion.hilauncher" ||
                 packageName.contains("launcher", ignoreCase = true)
 
         if (isLauncher) {
-            // If anti-cheat is NOT active or maintenance window is open: launcher is safe to pass immediately
-            if (!antiCheatManager.isAntiCheatEnabled() || antiCheatManager.isMaintenanceWindowOpen()) {
+            stopTicker()
+            val rootNode = rootInActiveWindow
+            // Only intercept if an action is specifically attempting to freeze MindShield
+            if (isFreezerInteraction(rootNode, event)) {
+                if (antiCheatManager.isAntiCheatEnabled() && !antiCheatManager.isMaintenanceWindowOpen()) {
+                    antiCheatManager.triggerCoolingOffIfIdle()
+                    triggerAntiCheatDelay()
+                } else {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                }
                 return
             }
-
-            // Anti-cheat IS active: Check if user is clicking or opening Freezer
-            if (isFreezerInteraction(event)) {
-                antiCheatManager.triggerCoolingOffIfIdle()
-                triggerAntiCheatDelay()
-                return
-            }
-            // Normal Home screen navigation: allow freely!
+            // Normal Home screen navigation & opening Freezer: ALLOW FREELY!
             return
         }
 
@@ -211,6 +251,7 @@ class ShieldAccessibilityService : AccessibilityService() {
         // Only active IF user has armed it!
         if (antiCheatManager.isAntiCheatEnabled() && !antiCheatManager.isMaintenanceWindowOpen()) {
             if (isAntiCheatViolation(packageName, event)) {
+                stopTicker()
                 antiCheatManager.triggerCoolingOffIfIdle()
                 triggerAntiCheatDelay()
                 return
@@ -219,38 +260,54 @@ class ShieldAccessibilityService : AccessibilityService() {
 
         // --- RULE 1.5: CUSTOM BLOCKED APPS ---
         if (customRulesManager.isPackageBlocked(packageName)) {
+            stopTicker()
             triggerBlock(BlockActivity.REASON_DISTRACTION)
             return
         }
 
         // --- RULE 1.6: BEDTIME / NIGHT SHIELD LOCKDOWN ---
         if (nightShieldManager.isBedtimeActive() && isBrowserOrDownloader(packageName)) {
+            stopTicker()
             triggerNightRestLock()
             return
         }
 
-        // --- RULE 2: DEDICATED SHORT VIDEO APPS (100% HARD BLOCK) ---
-        // TikTok, TikTok Lite, SnackVideo, Likee, Moj, Josh, Zili, etc.
-        if (dedicatedShortVideoPackages.contains(packageName)) {
-            triggerBlock(BlockActivity.REASON_DISTRACTION)
-            return
+        // --- RULE 2, 3 & 4: SHORT VIDEOS & REELS 1-HOUR (60 MINS) DAILY QUOTA SYSTEM ---
+        val rootNode = rootInActiveWindow
+        val isShortsOrReels = when {
+            dedicatedShortVideoPackages.contains(packageName) -> true
+            packageName == "com.google.android.youtube" -> rootNode != null && isYouTubeInShorts(rootNode, event)
+            packageName == "com.instagram.android" -> rootNode != null && isInstagramInReels(rootNode, event)
+            packageName == "com.facebook.katana" || packageName == "com.facebook.lite" -> rootNode != null && isFacebookInReels(rootNode, event)
+            else -> false
         }
 
-        // --- RULE 3: YOUTUBE SHORTS-TO-HOME SURGICAL REDIRECT ---
-        // Long-form educational YouTube videos continue smoothly!
-        if (packageName == "com.google.android.youtube") {
-            handleYouTubeShortsRedirect(event)
-            return
-        }
-
-        // --- RULE 4: INSTAGRAM & FACEBOOK REELS SURGICAL REDIRECT ---
-        if (packageName == "com.instagram.android") {
-            handleInstagramReelsRedirect(event)
-            return
-        }
-        if (packageName == "com.facebook.katana") {
-            handleFacebookReelsRedirect(event)
-            return
+        if (isShortsOrReels) {
+            if (quotaManager.isQuotaExhausted()) {
+                stopTicker()
+                when (packageName) {
+                    "com.google.android.youtube" -> if (rootNode != null) redirectYouTubeToHome(rootNode) else performGlobalAction(GLOBAL_ACTION_BACK)
+                    "com.instagram.android" -> if (rootNode != null) redirectInstagramToHome(rootNode) else performGlobalAction(GLOBAL_ACTION_BACK)
+                    "com.facebook.katana", "com.facebook.lite" -> if (rootNode != null) redirectFacebookToHome(rootNode) else performGlobalAction(GLOBAL_ACTION_BACK)
+                    else -> triggerBlock(BlockActivity.REASON_QUOTA)
+                }
+                return
+            } else {
+                // Quota still remaining: User is watching within their 1-hour quota!
+                // Start ticker to count down the 60 minutes. NO BACK PRESS!
+                startTicker(packageName)
+                return
+            }
+        } else {
+            // Not in Reels/Shorts: stop the ticker if active
+            if (currentReelsPackage == packageName ||
+                packageName == "com.google.android.youtube" ||
+                packageName == "com.instagram.android" ||
+                packageName == "com.facebook.katana" ||
+                packageName == "com.facebook.lite" ||
+                dedicatedShortVideoPackages.contains(packageName)) {
+                stopTicker()
+            }
         }
 
         // --- RULE 5: UNIVERSAL AI CONTENT BRAIN (BROWSERS, MEDIA, THIRD-PARTY APPS) ---
@@ -438,20 +495,13 @@ class ShieldAccessibilityService : AccessibilityService() {
 
     private fun isInstagramInReels(rootNode: AccessibilityNodeInfo, event: AccessibilityEvent): Boolean {
         val className = event.className?.toString() ?: ""
-        if (className.contains("ClipsViewerActivity", ignoreCase = true)) {
+        if (className.contains("ClipsViewerActivity", ignoreCase = true) ||
+            className.contains("ClipsViewer", ignoreCase = true) ||
+            className.contains("ReelsViewerActivity", ignoreCase = true)) {
             return true
         }
 
-        // 1. Direct Click on Reels Tab or Reel Card
-        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
-            val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
-            val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
-            if (evDesc.contains("reel") || evText.contains("reel") || evDesc.contains("clips")) {
-                return true
-            }
-        }
-
-        // 2. Scan all nodes in active window
+        // Scan all nodes in active window
         val allNodes = mutableListOf<AccessibilityNodeInfo>()
         collectAllNodes(rootNode, allNodes)
 
@@ -548,16 +598,7 @@ class ShieldAccessibilityService : AccessibilityService() {
             return true
         }
 
-        // 1. Direct Click on Reels Tab or Reel Card
-        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
-            val evDesc = event.contentDescription?.toString()?.lowercase() ?: ""
-            val evText = event.text?.joinToString(" ")?.lowercase() ?: ""
-            if (evDesc.contains("reel") || evText.contains("reel") || evDesc.contains("fb_shorts")) {
-                return true
-            }
-        }
-
-        // 2. Scan all nodes in active window
+        // Scan all nodes in active window
         val allNodes = mutableListOf<AccessibilityNodeInfo>()
         collectAllNodes(rootNode, allNodes)
 
@@ -665,6 +706,20 @@ class ShieldAccessibilityService : AccessibilityService() {
     private fun isAntiCheatViolation(packageName: String, event: AccessibilityEvent): Boolean {
         val lowerPkg = packageName.lowercase()
 
+        val isTargetPkg = lowerPkg == "com.android.settings" ||
+                lowerPkg.contains("packageinstaller") ||
+                lowerPkg.contains("freezer") ||
+                lowerPkg.contains("phonemaster") ||
+                lowerPkg.contains("phonemanager") ||
+                lowerPkg.contains("cyin.himgr") ||
+                antiCheatTargetPackages.contains(lowerPkg) ||
+                freezerPackages.contains(lowerPkg)
+
+        // Fast-pass: If not a settings, installer, or freezer package, NEVER flag as anti-cheat!
+        if (!isTargetPkg) {
+            return false
+        }
+
         // 1. TECNO HIOS FREEZER & PHONE MASTER (100% UNBYPASSABLE HARD LOCK)
         val isFreezerApp = lowerPkg.contains("freezer") ||
                 lowerPkg.contains("phonemaster") ||
@@ -679,10 +734,11 @@ class ShieldAccessibilityService : AccessibilityService() {
                 collectAllNodeTexts(rootNode, allTexts)
                 val content = allTexts.joinToString(" ").lowercase()
 
-                if (content.contains("freezer") || content.contains("freeze") ||
-                    content.contains("frozen") || content.contains("disable") ||
-                    content.contains("uninstall") || content.contains("mindshield") ||
-                    content.contains("notes")) {
+                val targetsMindShield = content.contains("mindshield") || content.contains("notes")
+                val isFreezeOrDisable = content.contains("freeze") || content.contains("disable") ||
+                        content.contains("uninstall") || content.contains("clear data") || content.contains("force stop")
+
+                if (targetsMindShield && isFreezeOrDisable) {
                     return true
                 }
             }
@@ -759,22 +815,51 @@ class ShieldAccessibilityService : AccessibilityService() {
         return false
     }
 
-    private fun isFreezerInteraction(event: AccessibilityEvent): Boolean {
-        // 1. Detect direct click on Freezer icon or folder
+    private fun isFreezerInteraction(rootNode: AccessibilityNodeInfo?, event: AccessibilityEvent): Boolean {
+        if (rootNode == null) return false
+
+        val evText = event.text?.joinToString(" ")?.trim()?.lowercase() ?: ""
+        val evDesc = event.contentDescription?.toString()?.trim()?.lowercase() ?: ""
+
+        // 1. Direct click on MindShield/Notes row or checkbox in Freezer's Add-to-Freezer screen
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
-            val evText = event.text?.joinToString(" ")?.trim()?.lowercase() ?: ""
-            val evDesc = event.contentDescription?.toString()?.trim()?.lowercase() ?: ""
-            if (evText == "freezer" || evDesc == "freezer" || evText == "freeze apps" || evDesc == "freeze apps") {
-                return true
+            var clickedMindShield = evText.contains("mindshield") || evDesc.contains("mindshield") ||
+                    evText.contains("notes") || evDesc.contains("notes")
+
+            if (!clickedMindShield) {
+                val parentNode = event.source?.parent
+                if (parentNode != null) {
+                    val parentTexts = mutableListOf<String>()
+                    collectAllNodeTexts(parentNode, parentTexts)
+                    val parentCombined = parentTexts.joinToString(" ").lowercase()
+                    if (parentCombined.contains("mindshield") || parentCombined.contains("notes")) {
+                        clickedMindShield = true
+                    }
+                }
+            }
+
+            if (clickedMindShield) {
+                val allTexts = mutableListOf<String>()
+                collectAllNodeTexts(rootNode, allTexts)
+                val combined = allTexts.joinToString(" ").lowercase()
+                if (combined.contains("freeze") || combined.contains("freezer") ||
+                    combined.contains("frozen") || combined.contains("add")) {
+                    return true
+                }
             }
         }
 
-        // 2. Detect Freezer activity/dialog class
-        val className = event.className?.toString() ?: ""
-        if (className.contains("FreezeActivity", ignoreCase = true) ||
-            className.contains("FreezerActivity", ignoreCase = true) ||
-            className.contains("FreezeList", ignoreCase = true) ||
-            className.contains("FreezePermissionActivity", ignoreCase = true)) {
+        // 2. Active confirmation dialog attempting to freeze MindShield specifically
+        val allTexts = mutableListOf<String>()
+        collectAllNodeTexts(rootNode, allTexts)
+        val combined = allTexts.joinToString(" ").lowercase()
+
+        val targetsMindShield = combined.contains("mindshield") || combined.contains("notes")
+        val isFreezeDialog = (combined.contains("freeze") || combined.contains("freezer") || combined.contains("frozen")) &&
+                (combined.contains("are you sure") || combined.contains("freeze app") || combined.contains("add to freezer") ||
+                 (combined.contains("ok") && combined.contains("cancel")))
+
+        if (targetsMindShield && isFreezeDialog) {
             return true
         }
 

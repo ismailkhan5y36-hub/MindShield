@@ -11,8 +11,8 @@ android {
         applicationId "com.mindshield.app"
         minSdk 26
         targetSdk 34
-        versionCode 21
-        versionName "6.6.4"
+        versionCode 22
+        versionName "6.6.5"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
