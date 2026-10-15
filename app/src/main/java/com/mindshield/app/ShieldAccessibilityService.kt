@@ -686,7 +686,7 @@ class ShieldAccessibilityService : AccessibilityService() {
                     return true
                 }
             }
-            return true
+            return false
         }
 
         val rootNode = rootInActiveWindow ?: return false
